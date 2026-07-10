@@ -286,9 +286,9 @@ impl MainWindow {
 
                 let delete_body = match app_entry.profile_mode {
                     ProfileMode::Shared => {
-                        "This deletes the launcher and icon. Your main browser profile and extensions are not modified."
+                        "This deletes the launcher, icon, and private copy of browser data used by this app. Your main browser profile is not modified."
                     }
-                    ProfileMode::Isolated | ProfileMode::IsolatedWithExtensions => {
+                    ProfileMode::Isolated => {
                         "This deletes the launcher, icon, and private browser profile. You will need to sign in again if you recreate it."
                     }
                 };

@@ -47,9 +47,8 @@ Web tools are where a huge amount of real work happens—email, docs, chat, dash
 - **Custom icon upload** when a site has no usable favicon
 - **Browser picker**, including **Default browser** and **Firefox Developer Edition**
 - **Profile modes** per app:
-  - **Isolated** (default) — private profile, independent of the main browser
-  - **Shared** — use the browser’s default profile so logins and extensions (e.g. 1Password) work
-  - **Isolated with extensions** — private profile seeded with extensions from the selected browser
+  - **Isolated** (default) — private empty profile (own dock icon)
+  - **Shared** — private profile **seeded** from your browser (logins & extensions like 1Password) while keeping a **separate dock icon**
 - **List, launch, edit, and remove** managed apps from one window
 - **Automatic repair** of dock-matching metadata on startup (important on Wayland)
 
@@ -63,7 +62,7 @@ Respectful comparison—different tools optimize for different environments.
 |---|---|---|---|---|
 | **UI** | Native GTK4 / libadwaita GUI | TUI menu inside Omarchy | GTK GUI | Inside the browser |
 | **Best fit** | Zorin / Ubuntu / GNOME stock desktops | Full Omarchy (Hyprland) setup | Linux Mint / Cinnamon (runs elsewhere too) | Single browser ecosystem |
-| **Isolation** | Isolated by default; optional shared or isolated+extensions | Typically shares browser profile | Optional isolated profiles | PWA / app profile |
+| **Isolation** | Isolated by default; optional shared browser profile | Typically shares browser profile | Optional isolated profiles | PWA / app profile |
 | **Dock icons on Wayland** | Sets `StartupWMClass` to Chromium’s real `app_id` | Window rules / Hyprland-centric | Can need manual class fixes | Often good for official PWAs |
 | **Browser choice** | Yes (default + many browsers) | Usually Chromium-family default | Yes | That browser only |
 | **Electron bloat** | No—uses the browser you already have | No | No | No |
@@ -88,9 +87,13 @@ Screenshots will live in [`docs/screenshots/`](docs/screenshots/).
 git clone https://github.com/maplepreneur/Anchor.git
 cd Anchor
 sudo apt install build-essential pkg-config libgtk-4-dev libadwaita-1-dev libglib2.0-dev
+cargo test
 cargo build --release
+mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/256x256/apps
 cp target/release/anchor ~/.local/bin/
 cp resources/com.voxelnorth.Anchor.desktop ~/.local/share/applications/
+cp resources/icons/com.voxelnorth.Anchor.png ~/.local/share/icons/hicolor/256x256/apps/
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Full requirements, PATH setup, upgrade from the old name, uninstall, and troubleshooting:
@@ -105,7 +108,7 @@ Full requirements, PATH setup, upgrade from the old name, uninstall, and trouble
 2. Click **+** (Add Web App)
 3. Enter **Name** and **URL**
 4. Choose a **Browser** (or Default browser)
-5. Choose a **Profile** mode (Isolated, Shared, or Isolated with extensions)
+5. Choose a **Profile** mode (Isolated or Shared)
 6. **Fetch icon** or **Choose image…**
 7. Click **Create**
 8. Launch from Super search, the app menu, or the ▶ button in Anchor
@@ -114,8 +117,8 @@ Full requirements, PATH setup, upgrade from the old name, uninstall, and trouble
 **Tips**
 
 - **Isolated** apps start signed out. Sign in once inside each web app.
-- Use **Shared browser profile** when you need password managers (e.g. 1Password) or existing logins. Chromium-family browsers work best for this mode.
-- **Isolated with extensions** keeps a private session but copies extensions from the selected browser when the app is created (best-effort).
+- Use **Shared browser profile** when you need password managers (e.g. 1Password) or existing logins. Anchor copies data into a **private** profile so the web app is a separate process with its **own dock icon** (unlike joining the browser’s profile, which groups under the browser—Zorin Web App Manager’s bug). Close the browser before creating/updating Shared apps for a more complete copy.
+- Dock matching: `StartupWMClass` equals Chromium’s Wayland `app_id`, and `Icon` uses that same name in the hicolor theme.
 
 ---
 
@@ -123,8 +126,8 @@ Full requirements, PATH setup, upgrade from the old name, uninstall, and trouble
 
 | Browser family | Launch style | Profile location |
 |---|---|---|
-| Chromium / Chrome / Brave / Edge / Vivaldi | `--app=URL`; isolated adds `--user-data-dir` | Isolated: `~/.local/share/anchor/profiles/<id>/` · Shared: browser default |
-| Firefox / Developer Edition / LibreWolf | Isolated: dedicated profile + `--no-remote` · Shared: `--new-instance` | Isolated: `~/.local/share/anchor/firefox/<id>/` · Shared: Firefox default |
+| Chromium / Chrome / Brave / Edge / Vivaldi | `--app=URL` + `--user-data-dir` (always) | `~/.local/share/anchor/profiles/<id>/` (Shared is seeded from the browser) |
+| Firefox / Developer Edition / LibreWolf | Dedicated profile + `--no-remote` | `~/.local/share/anchor/firefox/<id>/` (Shared is seeded from the browser) |
 
 Launchers: `~/.local/share/applications/webapp-*.desktop`  
 On Wayland, Chromium ignores `--class` and uses a URL-based window id (e.g. `brave-www.youtube.com__-Default`). Anchor writes that into `StartupWMClass` so the dock shows the right icon.

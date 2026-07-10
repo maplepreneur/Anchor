@@ -104,16 +104,10 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
     };
 
     let expected_class = browser::window_class(&browser, &app.codename, &app.url);
-    let icon_path = PathBuf::from(&app.icon);
-    let icon_path = if icon_path.exists() {
-        icon_path
-    } else {
-        paths::icon_path(&app.codename)?
-    };
+    let icon_path = resolve_icon_file(&app.codename, &app.icon);
 
-    // Ensure private profile exists. Seed Shared apps that were created under the old
-    // "join browser process" model (no user-data-dir) so they get logins/extensions
-    // without grouping under the browser dock icon.
+    // Ensure private profile exists. Re-seed Shared apps that never got extensions
+    // (wrong Firefox profile root, empty stub profile, or pre-fix launchers).
     let seed_if_needed = app.profile_mode.seeds_from_browser()
         && match browser.family {
             BrowserFamily::Chromium => {
@@ -123,7 +117,7 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
             }
             BrowserFamily::Firefox => {
                 let p = paths::firefox_profile_path(&app.codename)?;
-                !p.join("prefs.js").exists() && !p.join("extensions").exists()
+                !firefox_profile_has_extensions(&p)
             }
         };
     let _ = prepare_private_profile(&browser, &app.codename, app.profile_mode, seed_if_needed);
@@ -136,12 +130,9 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
         app.profile_mode,
     )?;
 
-    // Prefer theme Icon name matching StartupWMClass (GNOME dock matching).
-    let desktop_icon = if expected_class.contains('/') || expected_class.is_empty() {
-        icon_path.display().to_string()
-    } else {
-        expected_class.clone()
-    };
+    // Desktop Icon= must be an absolute PNG path so the Anchor list (and menus) show
+    // the favicon immediately. Themed copies under StartupWMClass still cover the dock.
+    let desktop_icon = icon_path.display().to_string();
     let expected_icon_line = format!("Icon={desktop_icon}");
     let current_desktop = fs::read_to_string(&app.path).unwrap_or_default();
     let icon_mismatch = !current_desktop
@@ -152,7 +143,10 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
         || app.exec != new_exec
         || !app.exec.contains(&expected_class)
         || icon_mismatch
-        || (browser.family == BrowserFamily::Chromium && !app.exec.contains("--user-data-dir="));
+        || (browser.family == BrowserFamily::Chromium && !app.exec.contains("--user-data-dir="))
+        || (browser.family == BrowserFamily::Firefox
+            && app.profile_mode.seeds_from_browser()
+            && seed_if_needed);
 
     // Always ensure themed icon exists under the window class name (dock fallback).
     if icon_path.exists() {
@@ -169,12 +163,55 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
         &app.name,
         &app.url,
         &browser.name,
-        Path::new(&desktop_icon),
+        &icon_path,
         &new_exec,
         &expected_class,
         app.profile_mode,
     )?;
     Ok(true)
+}
+
+/// Resolve the on-disk PNG for a web app (canonical path or legacy Icon= values).
+pub fn resolve_icon_file(codename: &str, icon_field: &str) -> PathBuf {
+    let direct = PathBuf::from(icon_field);
+    if !icon_field.is_empty() && direct.is_file() {
+        return direct;
+    }
+    if let Ok(canonical) = paths::icon_path(codename) {
+        if canonical.is_file() {
+            return canonical;
+        }
+    }
+    // Theme-name Icon= (older builds): try hicolor install of the class / webapp id.
+    if !icon_field.is_empty() && !icon_field.contains('/') {
+        if let Some(base) = dirs::data_local_dir() {
+            for size in [256u32, 128, 64, 48, 32, 16] {
+                let p = base.join(format!(
+                    "icons/hicolor/{size}x{size}/apps/{icon_field}.png"
+                ));
+                if p.is_file() {
+                    return p;
+                }
+            }
+        }
+    }
+    paths::icon_path(codename).unwrap_or(direct)
+}
+
+fn firefox_profile_has_extensions(profile: &Path) -> bool {
+    let ext_dir = profile.join("extensions");
+    if ext_dir.is_dir() {
+        if let Ok(rd) = fs::read_dir(&ext_dir) {
+            for entry in rd.flatten() {
+                let name = entry.file_name();
+                let s = name.to_string_lossy();
+                if s.ends_with(".xpi") || entry.path().is_dir() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Install PNG copies into the hicolor theme so GNOME can resolve icons by class name.
@@ -397,27 +434,18 @@ fn write_launcher(
     let window_class = browser::window_class(browser, codename, url);
     let exec = browser::build_exec(browser, codename, url, icon_dest, profile_mode)?;
 
-    // Install icons under the exact StartupWMClass name so GNOME can resolve them
-    // when matching the running window (ItsFoss / GNOME StartupWMClass guidance:
-    // Icon name should match the class the window reports).
+    // Themed copies named after StartupWMClass so GNOME can resolve dock icons by app_id.
     let _ = install_themed_icons(icon_dest, &window_class);
     let _ = install_themed_icons(icon_dest, &format!("webapp-{codename}"));
 
-    // Prefer the theme icon name (= window class) in the .desktop Icon= key so the
-    // dock associates the running app_id with the web app icon, not the browser’s.
-    // Fall back to the absolute PNG path if the class name is unusable as an icon id.
-    let desktop_icon = if window_class.contains('/') || window_class.is_empty() {
-        icon_dest.display().to_string()
-    } else {
-        window_class.clone()
-    };
-
+    // Absolute path in Icon= so the Anchor list and app menu show the favicon on first
+    // launch (theme-only names do not resolve as files in gtk::Image::from_file).
     let desktop_path = desktop::write_desktop_file(
         codename,
         name,
         url,
         &browser.name,
-        Path::new(&desktop_icon),
+        icon_dest,
         &exec,
         &window_class,
         profile_mode,
@@ -429,7 +457,6 @@ fn write_launcher(
         name: name.to_string(),
         url: url.to_string(),
         browser: browser.name.clone(),
-        // Anchor UI always uses the real PNG path (not the theme name).
         icon: icon_dest.display().to_string(),
         exec,
         startup_wm_class: window_class,
@@ -499,15 +526,49 @@ fn seed_firefox_from_browser(browser: &Browser, isolated_profile: &Path) -> Resu
     let Some(source) = browser::firefox_default_profile_dir(browser) else {
         return Ok(());
     };
+
+    // Directories first — XPI payloads live under extensions/.
     for name in [
         "extensions",
         "extension-store",
-        "extension-preferences.json",
+        "extension-store-menus",
+        "browser-extension-data",
+    ] {
+        let src = source.join(name);
+        if src.is_dir() {
+            let dest = isolated_profile.join(name);
+            let _ = copy_dir_recursive(&src, &dest);
+        }
+    }
+
+    // Extension storage (moz-extension+++…) — large but needed for logged-in addons.
+    let storage_src = source.join("storage/default");
+    if storage_src.is_dir() {
+        let storage_dest = isolated_profile.join("storage/default");
+        if let Ok(rd) = fs::read_dir(&storage_src) {
+            for entry in rd.flatten() {
+                let name = entry.file_name();
+                let s = name.to_string_lossy();
+                if s.starts_with("moz-extension+++") || s.starts_with("moz-extension+") {
+                    let _ = copy_dir_recursive(&entry.path(), &storage_dest.join(name));
+                }
+            }
+        }
+    }
+
+    // Registry / state files. Rewrite absolute paths inside JSON so addons resolve
+    // under the new profile instead of the source browser profile.
+    for name in [
         "extensions.json",
+        "addons.json",
+        "addonStartup.json.lz4",
+        "extension-preferences.json",
+        "extension-settings.json",
         "cookies.sqlite",
         "cookies.sqlite-wal",
         "cookies.sqlite-shm",
         "logins.json",
+        "logins-backup.json",
         "key4.db",
         "cert9.db",
         "places.sqlite",
@@ -515,16 +576,53 @@ fn seed_firefox_from_browser(browser: &Browser, isolated_profile: &Path) -> Resu
     ] {
         let src = source.join(name);
         let dest = isolated_profile.join(name);
-        if src.is_dir() {
-            let _ = copy_dir_recursive(&src, &dest);
-        } else if src.is_file() {
-            if let Some(parent) = dest.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            let _ = fs::copy(&src, &dest);
+        if !src.is_file() {
+            continue;
         }
+        if let Some(parent) = dest.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if name.ends_with(".json") {
+            if let Ok(text) = fs::read_to_string(&src) {
+                let rewritten = rewrite_firefox_profile_paths(&text, &source, isolated_profile);
+                let _ = fs::write(&dest, rewritten);
+                continue;
+            }
+        }
+        let _ = fs::copy(&src, &dest);
+    }
+
+    // Ensure userChrome still applies after prefs.js seed.
+    let user_js = isolated_profile.join("user.js");
+    if !user_js.exists() {
+        let _ = fs::write(
+            &user_js,
+            r#"// Generated by Anchor
+user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
+user_pref("browser.startup.homepage_override.mstone", "ignore");
+user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("datareporting.policy.dataSubmissionEnabled", false);
+user_pref("toolkit.telemetry.enabled", false);
+"#,
+        );
     }
     Ok(())
+}
+
+/// Rewrite absolute profile paths inside Firefox JSON so seeded addons load from
+/// the Anchor profile rather than the original browser profile.
+fn rewrite_firefox_profile_paths(text: &str, source: &Path, dest: &Path) -> String {
+    let mut out = text.to_string();
+    let src_s = source.display().to_string();
+    let dst_s = dest.display().to_string();
+    if src_s != dst_s {
+        out = out.replace(&src_s, &dst_s);
+        // Also handle file:// URIs
+        let src_uri = format!("file://{src_s}");
+        let dst_uri = format!("file://{dst_s}");
+        out = out.replace(&src_uri, &dst_uri);
+    }
+    out
 }
 
 fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
@@ -580,8 +678,8 @@ user_pref("toolkit.telemetry.enabled", false);
 pub fn delete_webapp(app: &DesktopEntry) -> Result<()> {
     desktop::delete_desktop_file(&app.path)?;
 
-    let icon = PathBuf::from(&app.icon);
-    if icon.exists() {
+    let icon = resolve_icon_file(&app.codename, &app.icon);
+    if icon.is_file() {
         let _ = fs::remove_file(&icon);
     }
     // Also try canonical icon path
@@ -728,16 +826,22 @@ mod integration {
                 profile.exists(),
                 "shared mode must create a private profile directory"
             );
-            // Icon= should match StartupWMClass (theme name), not only an absolute path
+            // Icon= is absolute PNG path so the list UI can show it on first launch
             assert!(
-                shared_desktop.contains(&format!("Icon={}", shared.startup_wm_class))
-                    || shared_desktop.contains("Icon=/"),
-                "desktop Icon should be theme class or path:\n{shared_desktop}"
+                shared_desktop.contains("Icon=/") && shared_desktop.contains(".png"),
+                "desktop Icon should be absolute PNG path:\n{shared_desktop}"
             );
             assert!(shared_desktop.contains(&format!(
                 "StartupWMClass={}",
                 shared.startup_wm_class
             )));
+            // resolve_icon_file must find the PNG for the list UI
+            let resolved = resolve_icon_file(&shared.codename, &shared.icon);
+            assert!(
+                resolved.is_file(),
+                "resolved icon missing: {}",
+                resolved.display()
+            );
         }
         delete_webapp(&shared).unwrap();
         assert!(!shared.path.exists());

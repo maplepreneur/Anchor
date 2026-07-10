@@ -567,6 +567,9 @@ pub fn firefox_default_profile_dir(browser: &Browser) -> Option<PathBuf> {
     let path = browser.exec_path.to_string_lossy().to_ascii_lowercase();
     let name = browser.name.to_ascii_lowercase();
     let key = format!("{path} {name}");
+    let prefer_devedition = key.contains("devedition")
+        || key.contains("dev-edition")
+        || key.contains("developer");
 
     let mut roots = Vec::new();
     if key.contains("librewolf") {
@@ -580,33 +583,78 @@ pub fn firefox_default_profile_dir(browser: &Browser) -> Option<PathBuf> {
     } else if key.contains("waterfox") {
         roots.push(home.join(".waterfox"));
     } else {
+        // Standard + Dev Edition locations (Ubuntu/Zorin often use ~/.config/mozilla).
         roots.push(home.join(".mozilla/firefox"));
+        roots.push(home.join(".config/mozilla/firefox"));
         roots.push(home.join(".var/app/org.mozilla.firefox/.mozilla/firefox"));
+        roots.push(home.join("snap/firefox/common/.mozilla/firefox"));
     }
 
     for root in roots {
-        if let Some(p) = parse_firefox_default_profile(&root) {
+        if let Some(p) = parse_firefox_default_profile(&root, prefer_devedition) {
             return Some(p);
         }
     }
     None
 }
 
-fn parse_firefox_default_profile(profiles_root: &Path) -> Option<PathBuf> {
+/// Pick the profile the user actually uses.
+///
+/// Modern Firefox writes both:
+/// - `[ProfileN]` with optional `Default=1` (sometimes an empty stub)
+/// - `[Install…] Default=<path>` (the real last-used profile)
+///
+/// Dev Edition’s live profile is usually named `dev-edition-default`.
+fn parse_firefox_default_profile(profiles_root: &Path, prefer_devedition: bool) -> Option<PathBuf> {
     let ini = profiles_root.join("profiles.ini");
     let text = std::fs::read_to_string(ini).ok()?;
+
     let mut best: Option<(i32, PathBuf)> = None;
     let mut section_path: Option<String> = None;
     let mut section_default = false;
     let mut section_relative = true;
-    let mut section_name_is_default = false;
+    let mut section_name = String::new();
+    let mut in_install = false;
+    let mut install_defaults: Vec<String> = Vec::new();
+
+    let score_profile = |is_default: bool, name: &str, full: &Path| -> i32 {
+        let mut score = 0;
+        if is_default {
+            score += 30;
+        }
+        let n = name.to_ascii_lowercase();
+        if prefer_devedition && n.contains("dev-edition") {
+            score += 50;
+        } else if prefer_devedition && n.contains("default") && !n.contains("dev-edition") {
+            // Empty "default" stub should not beat Install Default.
+            score += 5;
+        } else if n.contains("default") {
+            score += 15;
+        }
+        // Prefer profiles that actually have data (extensions / prefs).
+        if full.join("extensions.json").is_file() || full.join("prefs.js").is_file() {
+            score += 20;
+        }
+        if full.join("extensions").is_dir() {
+            score += 10;
+        }
+        // Tiny stub profiles (only times.json) score poorly.
+        if let Ok(rd) = std::fs::read_dir(full) {
+            let count = rd.count();
+            if count <= 2 {
+                score -= 40;
+            }
+        }
+        score
+    };
 
     let flush = |best: &mut Option<(i32, PathBuf)>,
                  path: &Option<String>,
                  is_default: bool,
                  relative: bool,
-                 name_default: bool,
-                 root: &Path| {
+                 name: &str,
+                 root: &Path,
+                 prefer_dev: bool| {
         let Some(p) = path else { return };
         let full = if relative {
             root.join(p)
@@ -616,13 +664,8 @@ fn parse_firefox_default_profile(profiles_root: &Path) -> Option<PathBuf> {
         if !full.is_dir() {
             return;
         }
-        let score = if is_default {
-            3
-        } else if name_default {
-            2
-        } else {
-            1
-        };
+        let score = score_profile(is_default, name, &full);
+        let _ = prefer_dev;
         match best {
             None => *best = Some((score, full)),
             Some((s, _)) if score > *s => *best = Some((score, full)),
@@ -633,30 +676,58 @@ fn parse_firefox_default_profile(profiles_root: &Path) -> Option<PathBuf> {
     for line in text.lines().chain(std::iter::once("")) {
         let line = line.trim();
         if line.starts_with('[') || line.is_empty() {
-            flush(
-                &mut best,
-                &section_path,
-                section_default,
-                section_relative,
-                section_name_is_default,
-                profiles_root,
-            );
+            if !in_install {
+                flush(
+                    &mut best,
+                    &section_path,
+                    section_default,
+                    section_relative,
+                    &section_name,
+                    profiles_root,
+                    prefer_devedition,
+                );
+            }
             section_path = None;
             section_default = false;
             section_relative = true;
-            section_name_is_default = false;
+            section_name.clear();
+            in_install = line.starts_with("[Install");
             continue;
         }
         if let Some((k, v)) = line.split_once('=') {
-            match k.trim() {
-                "Path" => section_path = Some(v.trim().to_string()),
-                "Default" => section_default = v.trim() == "1",
-                "IsRelative" => section_relative = v.trim() != "0",
-                "Name" => {
-                    section_name_is_default = v.to_ascii_lowercase().contains("default");
+            let k = k.trim();
+            let v = v.trim();
+            if in_install {
+                // [InstallXXXX] Default=profile-dir-name  (relative to profiles root)
+                if k == "Default" && !v.is_empty() && !v.contains('=') {
+                    install_defaults.push(v.to_string());
                 }
+                continue;
+            }
+            match k {
+                "Path" => section_path = Some(v.to_string()),
+                "Default" => section_default = v == "1",
+                "IsRelative" => section_relative = v != "0",
+                "Name" => section_name = v.to_string(),
                 _ => {}
             }
+        }
+    }
+
+    // Boost Install-section defaults (usually the real last-used profile).
+    for rel in install_defaults {
+        let full = profiles_root.join(&rel);
+        if !full.is_dir() {
+            continue;
+        }
+        let mut score = score_profile(true, &rel, &full) + 25;
+        if prefer_devedition && rel.to_ascii_lowercase().contains("dev-edition") {
+            score += 40;
+        }
+        match &best {
+            None => best = Some((score, full)),
+            Some((s, _)) if score > *s => best = Some((score, full)),
+            _ => {}
         }
     }
 
@@ -802,6 +873,60 @@ mod tests {
             ProfileMode::from_desktop_value("isolated_with_extensions"),
             Some(ProfileMode::Isolated)
         );
+    }
+
+    #[test]
+    fn firefox_profile_prefers_install_default_over_empty_stub() {
+        let tmp = std::env::temp_dir().join(format!(
+            "anchor-ff-profile-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // Empty stub marked Default=1
+        let stub = tmp.join("aaaa.default");
+        std::fs::create_dir_all(&stub).unwrap();
+        std::fs::write(stub.join("times.json"), "{}").unwrap();
+
+        // Real dev-edition profile referenced by [Install]
+        let real = tmp.join("bbbb.dev-edition-default");
+        std::fs::create_dir_all(real.join("extensions")).unwrap();
+        std::fs::write(real.join("prefs.js"), "// prefs").unwrap();
+        std::fs::write(real.join("extensions.json"), "{}").unwrap();
+        std::fs::write(
+            real.join("extensions").join("uBlock0@raymondhill.net.xpi"),
+            b"xpi",
+        )
+        .unwrap();
+
+        std::fs::write(
+            tmp.join("profiles.ini"),
+            r#"[Profile1]
+Name=default
+IsRelative=1
+Path=aaaa.default
+Default=1
+
+[Profile0]
+Name=dev-edition-default
+IsRelative=1
+Path=bbbb.dev-edition-default
+
+[General]
+StartWithLastProfile=1
+Version=2
+
+[InstallBCAEFFD141225C21]
+Default=bbbb.dev-edition-default
+Locked=1
+"#,
+        )
+        .unwrap();
+
+        let chosen = parse_firefox_default_profile(&tmp, true).expect("profile");
+        assert_eq!(chosen, real);
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

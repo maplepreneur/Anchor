@@ -167,8 +167,8 @@ impl CreateDialog {
 
         let mut initial_icon = IconState::None;
         if let Some(app) = existing.as_ref() {
-            let path = PathBuf::from(&app.icon);
-            if path.exists() {
+            let path = webapp::resolve_icon_file(&app.codename, &app.icon);
+            if path.is_file() {
                 icon_image.set_from_file(Some(&path));
                 icon_status.set_label("Current icon");
                 initial_icon = IconState::Keep;

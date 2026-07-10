@@ -1,4 +1,4 @@
-//! Zorin Web App Manager — create isolated web apps on Zorin OS.
+//! Anchor — turn any website into a real desktop app.
 
 mod browser;
 mod desktop;

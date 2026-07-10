@@ -1,10 +1,15 @@
 [package]
-name = "zorin-webapp-manager"
+name = "anchor"
 version = "0.1.0"
 edition = "2021"
-description = "Create and manage isolated web apps on Zorin OS"
+description = "Turn any website into a real desktop app — isolated web apps for Zorin, Ubuntu, and GNOME"
 license = "MIT"
 authors = ["Voxel North"]
+repository = "https://github.com/maplepreneur/Anchor"
+homepage = "https://github.com/maplepreneur/Anchor"
+readme = "README.md"
+keywords = ["webapp", "linux", "gnome", "zorin", "pwa"]
+categories = ["gui", "command-line-utilities"]
 
 [dependencies]
 anyhow = "1"

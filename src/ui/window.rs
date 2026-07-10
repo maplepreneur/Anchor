@@ -38,8 +38,8 @@ impl MainWindow {
 
         let empty = StatusPage::builder()
             .icon_name("web-browser-symbolic")
-            .title("No Web Apps Yet")
-            .description("Turn any website into a desktop app with its own icon and isolated browser profile.")
+            .title("No web apps yet")
+            .description("Anchor turns any website into a desktop app with its own icon and isolated browser profile.")
             .build();
 
         let empty_stack = gtk::Stack::new();
@@ -68,7 +68,7 @@ impl MainWindow {
         toast_overlay.set_child(Some(&outer));
 
         let header = HeaderBar::new();
-        let title = libadwaita::WindowTitle::new("Web App Manager", "Zorin OS");
+        let title = libadwaita::WindowTitle::new("Anchor", "Web apps for your desktop");
         header.set_title_widget(Some(&title));
 
         let add_btn = Button::builder()
@@ -90,7 +90,7 @@ impl MainWindow {
 
         let window = ApplicationWindow::builder()
             .application(app)
-            .title("Web App Manager")
+            .title("Anchor")
             .default_width(520)
             .default_height(560)
             .content(&toolbar)

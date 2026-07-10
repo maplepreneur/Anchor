@@ -7,7 +7,7 @@ use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 
-use crate::paths::{self, MANAGER_TAG};
+use crate::paths::{self, is_manager_tag, MANAGER_TAG};
 
 #[derive(Debug, Clone)]
 pub struct DesktopEntry {
@@ -114,8 +114,11 @@ fn parse_desktop_file(path: &Path) -> Result<DesktopEntry> {
         }
     }
 
-    if manager.as_deref() != Some(MANAGER_TAG) {
-        return Err(anyhow!("not managed by {MANAGER_TAG}"));
+    let Some(manager_tag) = manager.as_deref() else {
+        return Err(anyhow!("missing X-WebApp-Manager"));
+    };
+    if !is_manager_tag(manager_tag) {
+        return Err(anyhow!("not managed by Anchor (got {manager_tag})"));
     }
 
     let file_name = path
@@ -181,7 +184,7 @@ mod tests {
     #[test]
     fn write_and_parse_roundtrip() {
         let tmp = env::temp_dir().join(format!(
-            "zorin-webapp-desktop-test-{}",
+            "anchor-desktop-test-{}",
             std::process::id()
         ));
         let apps = tmp.join("applications");
@@ -207,6 +210,15 @@ X-WebApp-Browser=Brave
 X-WebApp-Isolated=true
 "#
         );
+        // Also verify legacy tag is accepted
+        let legacy_path = apps.join("webapp-Legacy9999.desktop");
+        let legacy = content.replace(
+            &format!("X-WebApp-Manager={MANAGER_TAG}"),
+            "X-WebApp-Manager=zorin-webapp-manager",
+        ).replace("TestApp9999", "Legacy9999").replace("Test App", "Legacy App");
+        fs::write(&legacy_path, legacy).unwrap();
+        let legacy_entry = parse_desktop_file(&legacy_path).unwrap();
+        assert_eq!(legacy_entry.codename, "Legacy9999");
         fs::write(&path, content).unwrap();
         let entry = parse_desktop_file(&path).unwrap();
         assert_eq!(entry.name, "Test App");

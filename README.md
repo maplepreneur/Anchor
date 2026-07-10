@@ -82,24 +82,56 @@ Screenshots will live in [`docs/screenshots/`](docs/screenshots/).
 
 ## Install
 
-**TL;DR**
+### One-liner (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash
+```
+
+On **Debian / Ubuntu / Zorin**, the script installs the latest GitHub Release `.deb` when one is available. Otherwise it builds from source and installs to `~/.local`.
+
+```bash
+# System-wide (.deb on Debian-like distros)
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash -s -- --system
+
+# Always build from source (user install)
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash -s -- --from-source
+
+# Uninstall
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash -s -- --uninstall
+```
+
+### From a clone
 
 ```bash
 git clone https://github.com/maplepreneur/Anchor.git
 cd Anchor
-sudo apt install build-essential pkg-config libgtk-4-dev libadwaita-1-dev libglib2.0-dev
-cargo test
-cargo build --release
-mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/256x256/apps
-cp target/release/anchor ~/.local/bin/
-cp resources/com.voxelnorth.Anchor.desktop ~/.local/share/applications/
-cp resources/icons/com.voxelnorth.Anchor.png ~/.local/share/icons/hicolor/256x256/apps/
-export PATH="$HOME/.local/bin:$PATH"
+./install.sh                 # smart default
+./install.sh --user          # ~/.local
+./install.sh --system        # .deb / system-wide
+./install.sh --from-source   # force cargo build
 ```
+
+### Debian package (`.deb`)
+
+Build a versioned package (version comes from `Cargo.toml`):
+
+```bash
+./scripts/build-deb.sh
+# → dist/anchor_0.1.0_amd64.deb
+
+sudo apt install ./dist/anchor_*.deb
+```
+
+Attach the `.deb` to a [GitHub Release](https://github.com/maplepreneur/Anchor/releases) named like `anchor_0.1.0_amd64.deb` so `install.sh` can download it.
 
 Full requirements, PATH setup, upgrade from the old name, uninstall, and troubleshooting:
 
 **→ [INSTALL.md](INSTALL.md)**
+
+Maintainer deep-dive (install modes, `.deb` layout, release checklist):
+
+**→ [docs/packaging.md](docs/packaging.md)**
 
 ---
 
@@ -163,8 +195,11 @@ src/
   paths.rs          # XDG paths
   webapp.rs         # Create / list / delete / repair
   ui/               # GTK4 + libadwaita UI
-resources/          # Desktop launcher for Anchor itself
+resources/          # Desktop launcher + icon for Anchor itself
+scripts/build-deb.sh  # Versioned .deb package builder
+install.sh          # One-shot installer (deb or source)
 INSTALL.md          # Detailed setup
+docs/packaging.md   # Packaging & release documentation
 ```
 
 ---

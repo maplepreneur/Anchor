@@ -15,10 +15,19 @@ Complete setup instructions for building and installing **Anchor** on Linux.
 
 ### Zorin OS / Ubuntu / Debian
 
+These packages are required to **compile** Anchor (runtime GTK/libadwaita are usually already installed on Zorin/Ubuntu):
+
 ```bash
 sudo apt update
 sudo apt install build-essential pkg-config \
   libgtk-4-dev libadwaita-1-dev libglib2.0-dev
+```
+
+Verify the toolchain can see GTK:
+
+```bash
+pkg-config --modversion gtk4
+pkg-config --modversion libadwaita-1
 ```
 
 ### Install Rust
@@ -27,6 +36,7 @@ sudo apt install build-essential pkg-config \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source "$HOME/.cargo/env"
 rustc --version
+cargo --version
 ```
 
 ## Build from source
@@ -35,6 +45,12 @@ rustc --version
 git clone https://github.com/maplepreneur/Anchor.git
 cd Anchor
 cargo build --release
+```
+
+Optional — confirm unit tests pass:
+
+```bash
+cargo test
 ```
 
 The binary is written to:
@@ -53,20 +69,25 @@ cargo run
 
 ## Install for your user
 
-This installs the binary and a desktop launcher so **Anchor** appears in the app menu.
+This installs the binary, icon, and a desktop launcher so **Anchor** appears in the app menu.
 
 ```bash
 cargo build --release
 
-mkdir -p ~/.local/bin ~/.local/share/applications
+mkdir -p ~/.local/bin \
+  ~/.local/share/applications \
+  ~/.local/share/icons/hicolor/256x256/apps
 
 cp target/release/anchor ~/.local/bin/
 cp resources/com.voxelnorth.Anchor.desktop ~/.local/share/applications/
+cp resources/icons/com.voxelnorth.Anchor.png \
+  ~/.local/share/icons/hicolor/256x256/apps/
 
 # Ensure ~/.local/bin is on your PATH (add to ~/.bashrc if needed)
 export PATH="$HOME/.local/bin:$PATH"
 
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
+gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor 2>/dev/null || true
 ```
 
 Then open **Anchor** from Super search / the application menu, or run:
@@ -83,7 +104,6 @@ If `anchor` is not found in a new terminal:
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
-
 ## Upgrading from “Zorin Web App Manager” (v1)
 
 Earlier builds used:
@@ -105,7 +125,9 @@ After installing Anchor:
 ```bash
 rm -f ~/.local/bin/anchor
 rm -f ~/.local/share/applications/com.voxelnorth.Anchor.desktop
+rm -f ~/.local/share/icons/hicolor/256x256/apps/com.voxelnorth.Anchor.png
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
+gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor 2>/dev/null || true
 ```
 
 Optional — remove Anchor-created web apps and data (destructive):
@@ -134,11 +156,17 @@ On **Wayland**, Chromium-family browsers set a URL-based window id (for example 
 
 ### Signed out inside the web app
 
-**Isolated** (and **Isolated with extensions**) profiles start clean by design so apps stay independent of your main browser. Sign in once inside each web app.
+**Isolated** profiles start clean by design so apps stay independent of your main browser. Sign in once inside each web app.
 
-If you need logins or browser extensions (for example **1Password**) without signing in again, recreate the app with **Shared browser profile**. That uses your browser’s default profile. Chromium-family browsers work best; Firefox may refuse to open a second instance if the default profile is already locked.
+If you need logins or browser extensions (for example **1Password**) without signing in again, recreate the app with **Shared browser profile**. Shared copies extensions and logins into a **private** profile (close the browser first for best results), so the app stays a separate process with its own dock icon.
 
-**Isolated with extensions** copies extension data from the selected browser into a private profile when the app is created. Cookies and passwords from the main browser are not copied.
+### Shared profile dock icons (fixed)
+
+Older Shared apps launched against the browser’s default profile. Chromium uses one process per profile, so the web app and browser shared a dock icon (same bug as Zorin Web App Manager).
+
+**Current behavior:** Shared apps always get their own `--user-data-dir` / Firefox profile. Anchor sets `StartupWMClass` to Chromium’s real Wayland `app_id` and installs a matching theme icon (see also [It’s FOSS on StartupWMClass](https://itsfoss.com/ubuntu-app-icon-missing/)).
+
+After upgrading, open **Anchor once** so existing Shared launchers are repaired. Fully quit the web app and browser, then relaunch the web app. Unpin any old pin that still points at the browser if needed.
 
 ### No browsers listed
 
@@ -150,7 +178,14 @@ xdg-settings get default-web-browser
 
 ### Build fails with missing `gtk4` / `libadwaita`
 
-Install the **development** packages listed under [Install build dependencies](#install-build-dependencies), not only the runtime libraries.
+Install the **development** packages listed under [Install build dependencies](#install-build-dependencies), not only the runtime libraries:
+
+```bash
+sudo apt install build-essential pkg-config \
+  libgtk-4-dev libadwaita-1-dev libglib2.0-dev
+```
+
+If `pkg-config --modversion gtk4` still fails, the `-dev` packages are missing or incomplete. Runtime packages such as `libgtk-4-1` alone are not enough to compile.
 
 ## Packaging (later)
 

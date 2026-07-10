@@ -120,12 +120,8 @@ impl CreateDialog {
         let browser_row = ActionRow::builder().title("Browser").build();
         browser_row.add_suffix(&browser_drop);
 
-        // Profile mode: isolated / shared / isolated + extensions
-        let profile_labels = [
-            "Isolated",
-            "Shared browser profile",
-            "Isolated with extensions",
-        ];
+        // Profile mode: isolated / shared
+        let profile_labels = ["Isolated", "Shared browser profile"];
         let profile_model = StringList::new(&profile_labels);
         let initial_profile = existing
             .as_ref()
@@ -495,7 +491,6 @@ impl CreateDialog {
 fn profile_mode_from_index(idx: u32) -> ProfileMode {
     match idx {
         1 => ProfileMode::Shared,
-        2 => ProfileMode::IsolatedWithExtensions,
         _ => ProfileMode::Isolated,
     }
 }
@@ -504,16 +499,14 @@ fn profile_mode_to_index(mode: ProfileMode) -> u32 {
     match mode {
         ProfileMode::Isolated => 0,
         ProfileMode::Shared => 1,
-        ProfileMode::IsolatedWithExtensions => 2,
     }
 }
 
 fn profile_mode_subtitle(mode: ProfileMode) -> &'static str {
     match mode {
-        ProfileMode::Isolated => "Separate profile — independent of your main browser",
-        ProfileMode::Shared => "Uses your browser’s logins and extensions (e.g. 1Password)",
-        ProfileMode::IsolatedWithExtensions => {
-            "Separate profile, seeded with extensions from the selected browser"
+        ProfileMode::Isolated => "Separate empty profile — independent of your main browser",
+        ProfileMode::Shared => {
+            "Private profile, seeded with your browser’s logins & extensions (e.g. 1Password)"
         }
     }
 }
@@ -521,13 +514,10 @@ fn profile_mode_subtitle(mode: ProfileMode) -> &'static str {
 fn profile_mode_hint(mode: ProfileMode) -> &'static str {
     match mode {
         ProfileMode::Isolated => {
-            "Note: Isolated profiles start signed out. Sign in once inside the web app."
+            "Note: Starts signed out with its own dock icon. Sign in once inside the web app."
         }
         ProfileMode::Shared => {
-            "Note: Shares cookies and extensions with your main browser. Chromium-family browsers work best; Firefox may conflict if already open."
-        }
-        ProfileMode::IsolatedWithExtensions => {
-            "Note: Private cookies/session; extensions are copied from the selected browser when the app is created or when you switch into this mode (best-effort)."
+            "Note: Copies extensions and logins from your browser into a private profile when created, so the web app keeps its own dock icon (separate process). Close the browser first for a more complete copy. Re-seed by switching away from Shared and back again."
         }
     }
 }

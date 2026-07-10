@@ -15,13 +15,17 @@ pub enum BrowserFamily {
 /// How a web app uses browser profile data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ProfileMode {
-    /// Private profile under Anchor data dir (default).
+    /// Private empty profile under Anchor data dir (default).
     #[default]
     Isolated,
-    /// Use the browser’s default profile (extensions, cookies, logins).
+    /// Private profile seeded from the browser (extensions, cookies, logins).
+    ///
+    /// Always uses a dedicated `--user-data-dir` / Firefox profile so the web app is a
+    /// separate process from the main browser. That is required for separate GNOME dock
+    /// icons: Chromium shares one process per user-data-dir, so launching `--app` against
+    /// the browser’s default profile groups the web app with the browser (Zorin Web App
+    /// Manager had the same issue).
     Shared,
-    /// Private profile seeded with extensions from the selected browser.
-    IsolatedWithExtensions,
 }
 
 impl ProfileMode {
@@ -29,7 +33,6 @@ impl ProfileMode {
         match self {
             Self::Isolated => "isolated",
             Self::Shared => "shared",
-            Self::IsolatedWithExtensions => "isolated-extensions",
         }
     }
 
@@ -37,9 +40,9 @@ impl ProfileMode {
         match s.trim().to_ascii_lowercase().as_str() {
             "isolated" => Some(Self::Isolated),
             "shared" => Some(Self::Shared),
-            "isolated-extensions" | "isolated_with_extensions" => {
-                Some(Self::IsolatedWithExtensions)
-            }
+            // Legacy: "Isolated with extensions" was removed; those apps keep their
+            // private profile and behave as Isolated.
+            "isolated-extensions" | "isolated_with_extensions" => Some(Self::Isolated),
             _ => None,
         }
     }
@@ -49,8 +52,15 @@ impl ProfileMode {
         !matches!(self, Self::Shared)
     }
 
+    /// Both modes use a private profile directory so Chromium/Firefox get a separate
+    /// process and the dock can show a distinct icon from the main browser.
     pub fn uses_private_profile(self) -> bool {
-        matches!(self, Self::Isolated | Self::IsolatedWithExtensions)
+        true
+    }
+
+    /// Whether to copy extensions/cookies/logins from the browser into the private profile.
+    pub fn seeds_from_browser(self) -> bool {
+        matches!(self, Self::Shared)
     }
 }
 
@@ -476,31 +486,23 @@ pub fn build_exec(
             // --class is honored on X11; on Wayland Chromium derives app_id from the URL
             // (see chromium_wayland_app_id). We still pass matching --class/--name for X11.
             let base = format!("{exec_q} --app={url_q} --class={class_q} --name={class_q}");
-            if profile_mode.uses_private_profile() {
-                let profile = paths::chromium_profile_path(codename)?;
-                let profile_q = shell_quote(&profile.display().to_string());
-                Ok(format!("{base} --user-data-dir={profile_q}"))
-            } else {
-                // Shared: default user-data-dir so extensions (e.g. 1Password) work.
-                Ok(base)
-            }
+            // Always use a private user-data-dir so this web app is not the browser’s
+            // singleton process (required for a separate dock icon on GNOME/Wayland).
+            let _ = profile_mode; // both modes use private dirs; Shared is seeded separately
+            let profile = paths::chromium_profile_path(codename)?;
+            let profile_q = shell_quote(&profile.display().to_string());
+            Ok(format!("{base} --user-data-dir={profile_q}"))
         }
         BrowserFamily::Firefox => {
             // Wrap in sh -c so we can set XAPP_FORCE_GTKWINDOW_ICON for better icon behavior
             // on some desktops. Single-quoted inside so desktop file parsing is safe.
-            if profile_mode.uses_private_profile() {
-                let profile = paths::firefox_profile_path(codename)?;
-                let profile_q = shell_quote(&profile.display().to_string());
-                Ok(format!(
-                    "sh -c 'XAPP_FORCE_GTKWINDOW_ICON={icon_q} {exec_q} --class {class_q} --name {class_q} --profile {profile_q} --no-remote {url_q}'"
-                ))
-            } else {
-                // Shared: open a new instance against the default profile (no dedicated Anchor profile).
-                // May conflict if the default profile is locked by a running Firefox.
-                Ok(format!(
-                    "sh -c 'XAPP_FORCE_GTKWINDOW_ICON={icon_q} {exec_q} --class {class_q} --name {class_q} --new-instance {url_q}'"
-                ))
-            }
+            // Private --profile keeps the web app out of the default-profile singleton.
+            let _ = profile_mode;
+            let profile = paths::firefox_profile_path(codename)?;
+            let profile_q = shell_quote(&profile.display().to_string());
+            Ok(format!(
+                "sh -c 'XAPP_FORCE_GTKWINDOW_ICON={icon_q} {exec_q} --class {class_q} --name {class_q} --profile {profile_q} --no-remote {url_q}'"
+            ))
         }
     }
 }
@@ -516,7 +518,6 @@ pub fn chromium_default_user_data_dir(browser: &Browser) -> Option<PathBuf> {
     let name = browser.name.to_ascii_lowercase();
     let key = format!("{path} {name}");
 
-    // Flatpak: ~/.var/app/<id>/config/<product-path>
     let flatpak_id = if key.contains("com.brave.browser") || path.contains("com.brave.browser") {
         Some(("com.brave.Browser", "BraveSoftware/Brave-Browser"))
     } else if key.contains("com.google.chrome") || path.contains("com.google.chrome") {
@@ -615,7 +616,6 @@ fn parse_firefox_default_profile(profiles_root: &Path) -> Option<PathBuf> {
         if !full.is_dir() {
             return;
         }
-        // Prefer Default=1, then name containing default, then first valid.
         let score = if is_default {
             3
         } else if name_default {
@@ -653,8 +653,7 @@ fn parse_firefox_default_profile(profiles_root: &Path) -> Option<PathBuf> {
                 "Default" => section_default = v.trim() == "1",
                 "IsRelative" => section_relative = v.trim() != "0",
                 "Name" => {
-                    section_name_is_default =
-                        v.to_ascii_lowercase().contains("default");
+                    section_name_is_default = v.to_ascii_lowercase().contains("default");
                 }
                 _ => {}
             }
@@ -730,7 +729,7 @@ mod tests {
     }
 
     #[test]
-    fn chromium_shared_exec_omits_user_data_dir() {
+    fn chromium_shared_exec_uses_private_user_data_dir() {
         let browser = brave();
         let exec = build_exec(
             &browser,
@@ -741,21 +740,9 @@ mod tests {
         )
         .unwrap();
         assert!(exec.contains("--app="));
-        assert!(!exec.contains("--user-data-dir="));
-    }
-
-    #[test]
-    fn chromium_isolated_with_extensions_uses_private_profile() {
-        let browser = brave();
-        let exec = build_exec(
-            &browser,
-            "YouTube1234",
-            "https://www.youtube.com/",
-            Path::new("/tmp/icon.png"),
-            ProfileMode::IsolatedWithExtensions,
-        )
-        .unwrap();
+        // Shared still uses a private user-data-dir so the dock icon is not the browser’s.
         assert!(exec.contains("--user-data-dir="));
+        assert!(exec.contains("--class=brave-www.youtube.com__-Default"));
     }
 
     #[test]
@@ -779,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn firefox_shared_exec_uses_new_instance() {
+    fn firefox_shared_exec_uses_private_profile() {
         let browser = Browser {
             name: "Firefox".into(),
             exec_path: PathBuf::from("/usr/bin/firefox"),
@@ -793,26 +780,27 @@ mod tests {
             ProfileMode::Shared,
         )
         .unwrap();
-        assert!(exec.contains("--new-instance"));
-        assert!(!exec.contains("--profile"));
-        assert!(!exec.contains("--no-remote"));
+        assert!(exec.contains("--profile"));
+        assert!(exec.contains("--no-remote"));
+        assert!(exec.contains("WebApp-Maps5678"));
     }
 
     #[test]
     fn profile_mode_desktop_roundtrip() {
-        for mode in [
-            ProfileMode::Isolated,
-            ProfileMode::Shared,
-            ProfileMode::IsolatedWithExtensions,
-        ] {
+        for mode in [ProfileMode::Isolated, ProfileMode::Shared] {
             assert_eq!(
                 ProfileMode::from_desktop_value(mode.as_desktop_value()),
                 Some(mode)
             );
         }
+        // Legacy isolated-with-extensions maps to Isolated
         assert_eq!(
             ProfileMode::from_desktop_value("isolated-extensions"),
-            Some(ProfileMode::IsolatedWithExtensions)
+            Some(ProfileMode::Isolated)
+        );
+        assert_eq!(
+            ProfileMode::from_desktop_value("isolated_with_extensions"),
+            Some(ProfileMode::Isolated)
         );
     }
 

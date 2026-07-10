@@ -20,7 +20,7 @@ pub struct CreateRequest {
     pub icon_override: Option<PathBuf>,
     /// Pre-fetched icon bytes already written somewhere, or None to fetch.
     pub icon_source: IconSource,
-    /// Isolated, shared, or isolated with seeded extensions.
+    /// Isolated or shared browser profile.
     pub profile_mode: ProfileMode,
 }
 
@@ -111,6 +111,23 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
         paths::icon_path(&app.codename)?
     };
 
+    // Ensure private profile exists. Seed Shared apps that were created under the old
+    // "join browser process" model (no user-data-dir) so they get logins/extensions
+    // without grouping under the browser dock icon.
+    let seed_if_needed = app.profile_mode.seeds_from_browser()
+        && match browser.family {
+            BrowserFamily::Chromium => {
+                let p = paths::chromium_profile_path(&app.codename)?;
+                !p.join("Default").join("Preferences").exists()
+                    && !p.join("Default").join("Extensions").exists()
+            }
+            BrowserFamily::Firefox => {
+                let p = paths::firefox_profile_path(&app.codename)?;
+                !p.join("prefs.js").exists() && !p.join("extensions").exists()
+            }
+        };
+    let _ = prepare_private_profile(&browser, &app.codename, app.profile_mode, seed_if_needed);
+
     let new_exec = browser::build_exec(
         &browser,
         &app.codename,
@@ -118,8 +135,24 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
         &icon_path,
         app.profile_mode,
     )?;
-    let needs_fix =
-        app.startup_wm_class != expected_class || app.exec != new_exec || !app.exec.contains(&expected_class);
+
+    // Prefer theme Icon name matching StartupWMClass (GNOME dock matching).
+    let desktop_icon = if expected_class.contains('/') || expected_class.is_empty() {
+        icon_path.display().to_string()
+    } else {
+        expected_class.clone()
+    };
+    let expected_icon_line = format!("Icon={desktop_icon}");
+    let current_desktop = fs::read_to_string(&app.path).unwrap_or_default();
+    let icon_mismatch = !current_desktop
+        .lines()
+        .any(|l| l.trim() == expected_icon_line);
+
+    let needs_fix = app.startup_wm_class != expected_class
+        || app.exec != new_exec
+        || !app.exec.contains(&expected_class)
+        || icon_mismatch
+        || (browser.family == BrowserFamily::Chromium && !app.exec.contains("--user-data-dir="));
 
     // Always ensure themed icon exists under the window class name (dock fallback).
     if icon_path.exists() {
@@ -136,7 +169,7 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
         &app.name,
         &app.url,
         &browser.name,
-        &icon_path,
+        Path::new(&desktop_icon),
         &new_exec,
         &expected_class,
         app.profile_mode,
@@ -189,7 +222,7 @@ pub fn create_webapp(req: CreateRequest) -> Result<DesktopEntry> {
         favicon::local_image_to_png(override_path, &icon_dest)?;
     }
 
-    // Prepare private profile when needed (Shared uses the browser default profile).
+    // Both modes use a private profile dir; Shared seeds from the browser.
     prepare_private_profile(&req.browser, &codename, req.profile_mode, true)?;
 
     write_launcher(
@@ -236,36 +269,32 @@ pub fn update_webapp(req: EditRequest) -> Result<DesktopEntry> {
 
     let old_mode = req.existing.profile_mode;
     let new_mode = req.profile_mode;
-    let seed_extensions = new_mode == ProfileMode::IsolatedWithExtensions
-        && (old_mode != ProfileMode::IsolatedWithExtensions
-            || req.existing.browser != req.browser.name);
 
-    // Drop private profiles when switching to Shared, or when leaving a browser family.
-    if old_mode.uses_private_profile() && !new_mode.uses_private_profile() {
+    // Switching Shared → Isolated: wipe seeded data for a clean private profile.
+    if old_mode.seeds_from_browser() && !new_mode.seeds_from_browser() {
         remove_private_profiles(&codename);
-    } else if old_mode.uses_private_profile() {
+    } else if let Some(old_browser) = resolve_browser_by_name(&req.existing.browser) {
         // If browser family changed, remove the unused family's private profile.
-        if let Some(old_browser) = resolve_browser_by_name(&req.existing.browser) {
-            if old_browser.family != req.browser.family {
-                match old_browser.family {
-                    BrowserFamily::Chromium => {
-                        if let Ok(p) = paths::chromium_profile_path(&codename) {
-                            let _ = fs::remove_dir_all(p);
-                        }
+        if old_browser.family != req.browser.family {
+            match old_browser.family {
+                BrowserFamily::Chromium => {
+                    if let Ok(p) = paths::chromium_profile_path(&codename) {
+                        let _ = fs::remove_dir_all(p);
                     }
-                    BrowserFamily::Firefox => {
-                        if let Ok(p) = paths::firefox_profile_path(&codename) {
-                            let _ = fs::remove_dir_all(p);
-                        }
+                }
+                BrowserFamily::Firefox => {
+                    if let Ok(p) = paths::firefox_profile_path(&codename) {
+                        let _ = fs::remove_dir_all(p);
                     }
                 }
             }
         }
     }
 
-    if new_mode.uses_private_profile() {
-        prepare_private_profile(&req.browser, &codename, new_mode, seed_extensions)?;
-    }
+    // Seed when entering Shared, or when Shared + browser changed (refresh extensions).
+    let force_seed = new_mode.seeds_from_browser()
+        && (old_mode != new_mode || req.existing.browser != req.browser.name);
+    prepare_private_profile(&req.browser, &codename, new_mode, force_seed)?;
 
     write_launcher(
         &codename,
@@ -306,17 +335,14 @@ fn prepare_private_profile(
     browser: &Browser,
     codename: &str,
     mode: ProfileMode,
-    seed_extensions: bool,
+    allow_seed: bool,
 ) -> Result<()> {
-    if !mode.uses_private_profile() {
-        return Ok(());
-    }
     match browser.family {
         BrowserFamily::Chromium => {
             let profile = paths::chromium_profile_path(codename)?;
             fs::create_dir_all(&profile)?;
-            if seed_extensions && mode == ProfileMode::IsolatedWithExtensions {
-                let _ = seed_chromium_extensions(browser, &profile);
+            if allow_seed && mode.seeds_from_browser() {
+                let _ = seed_chromium_from_browser(browser, &profile);
             }
         }
         BrowserFamily::Firefox => {
@@ -326,8 +352,8 @@ fn prepare_private_profile(
             } else {
                 fs::create_dir_all(&profile)?;
             }
-            if seed_extensions && mode == ProfileMode::IsolatedWithExtensions {
-                let _ = seed_firefox_extensions(browser, &profile);
+            if allow_seed && mode.seeds_from_browser() {
+                let _ = seed_firefox_from_browser(browser, &profile);
             }
         }
     }
@@ -370,19 +396,32 @@ fn write_launcher(
 ) -> Result<DesktopEntry> {
     let window_class = browser::window_class(browser, codename, url);
     let exec = browser::build_exec(browser, codename, url, icon_dest, profile_mode)?;
+
+    // Install icons under the exact StartupWMClass name so GNOME can resolve them
+    // when matching the running window (ItsFoss / GNOME StartupWMClass guidance:
+    // Icon name should match the class the window reports).
+    let _ = install_themed_icons(icon_dest, &window_class);
+    let _ = install_themed_icons(icon_dest, &format!("webapp-{codename}"));
+
+    // Prefer the theme icon name (= window class) in the .desktop Icon= key so the
+    // dock associates the running app_id with the web app icon, not the browser’s.
+    // Fall back to the absolute PNG path if the class name is unusable as an icon id.
+    let desktop_icon = if window_class.contains('/') || window_class.is_empty() {
+        icon_dest.display().to_string()
+    } else {
+        window_class.clone()
+    };
+
     let desktop_path = desktop::write_desktop_file(
         codename,
         name,
         url,
         &browser.name,
-        icon_dest,
+        Path::new(&desktop_icon),
         &exec,
         &window_class,
         profile_mode,
     )?;
-
-    let _ = install_themed_icons(icon_dest, &window_class);
-    let _ = install_themed_icons(icon_dest, &format!("webapp-{codename}"));
 
     Ok(DesktopEntry {
         path: desktop_path,
@@ -390,11 +429,119 @@ fn write_launcher(
         name: name.to_string(),
         url: url.to_string(),
         browser: browser.name.clone(),
+        // Anchor UI always uses the real PNG path (not the theme name).
         icon: icon_dest.display().to_string(),
         exec,
         startup_wm_class: window_class,
         profile_mode,
     })
+}
+
+/// Best-effort copy of extensions + session data from the browser into a private
+/// Chromium user-data-dir so Shared mode keeps logins/password managers without
+/// joining the browser process (which breaks dock icons).
+fn seed_chromium_from_browser(browser: &Browser, isolated_user_data: &Path) -> Result<()> {
+    let Some(source_root) = browser::chromium_default_user_data_dir(browser) else {
+        return Ok(());
+    };
+    let source_default = source_root.join("Default");
+    if !source_default.is_dir() {
+        return Ok(());
+    }
+    let dest_default = isolated_user_data.join("Default");
+    fs::create_dir_all(&dest_default)?;
+
+    // Directories (extensions + settings)
+    for name in [
+        "Extensions",
+        "Local Extension Settings",
+        "Extension State",
+        "Extension Rules",
+        "Sync Extension Settings",
+        "Managed Extension Settings",
+        "Local Storage",
+        "Session Storage",
+        "IndexedDB",
+        "Service Worker",
+    ] {
+        let src = source_default.join(name);
+        if src.is_dir() {
+            let dest = dest_default.join(name);
+            let _ = copy_dir_recursive(&src, &dest);
+        }
+    }
+
+    // Files (cookies, passwords, preferences) — ignore lock failures if browser is open
+    for name in [
+        "Cookies",
+        "Cookies-journal",
+        "Login Data",
+        "Login Data-journal",
+        "Login Data For Account",
+        "Login Data For Account-journal",
+        "Web Data",
+        "Web Data-journal",
+        "Preferences",
+        "Secure Preferences",
+        "Bookmarks",
+    ] {
+        let src = source_default.join(name);
+        if src.is_file() {
+            let dest = dest_default.join(name);
+            let _ = fs::copy(&src, &dest);
+        }
+    }
+    Ok(())
+}
+
+/// Best-effort copy of Firefox extension/session files into an isolated profile.
+fn seed_firefox_from_browser(browser: &Browser, isolated_profile: &Path) -> Result<()> {
+    let Some(source) = browser::firefox_default_profile_dir(browser) else {
+        return Ok(());
+    };
+    for name in [
+        "extensions",
+        "extension-store",
+        "extension-preferences.json",
+        "extensions.json",
+        "cookies.sqlite",
+        "cookies.sqlite-wal",
+        "cookies.sqlite-shm",
+        "logins.json",
+        "key4.db",
+        "cert9.db",
+        "places.sqlite",
+        "prefs.js",
+    ] {
+        let src = source.join(name);
+        let dest = isolated_profile.join(name);
+        if src.is_dir() {
+            let _ = copy_dir_recursive(&src, &dest);
+        } else if src.is_file() {
+            if let Some(parent) = dest.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::copy(&src, &dest);
+        }
+    }
+    Ok(())
+}
+
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
+    fs::create_dir_all(dest).with_context(|| format!("create {}", dest.display()))?;
+    for entry in fs::read_dir(src).with_context(|| format!("read {}", src.display()))? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let from = entry.path();
+        let to = dest.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_recursive(&from, &to)?;
+        } else if ty.is_file() {
+            fs::copy(&from, &to)
+                .with_context(|| format!("copy {} -> {}", from.display(), to.display()))?;
+        }
+    }
+    Ok(())
 }
 
 /// Minimal Firefox profile so the app starts without the profile manager.
@@ -428,74 +575,7 @@ user_pref("toolkit.telemetry.enabled", false);
     Ok(())
 }
 
-/// Copy extension-related trees from the browser’s default Chromium profile.
-/// Best-effort: missing source dirs are ignored; cookies/logins are never copied.
-fn seed_chromium_extensions(browser: &Browser, isolated_user_data: &Path) -> Result<()> {
-    let Some(source_root) = browser::chromium_default_user_data_dir(browser) else {
-        return Ok(());
-    };
-    let source_default = source_root.join("Default");
-    if !source_default.is_dir() {
-        return Ok(());
-    }
-    let dest_default = isolated_user_data.join("Default");
-    fs::create_dir_all(&dest_default)?;
 
-    for name in [
-        "Extensions",
-        "Local Extension Settings",
-        "Extension State",
-        "Extension Rules",
-        "Sync Extension Settings",
-        "Managed Extension Settings",
-    ] {
-        let src = source_default.join(name);
-        if src.is_dir() {
-            let dest = dest_default.join(name);
-            copy_dir_recursive(&src, &dest)?;
-        }
-    }
-    Ok(())
-}
-
-/// Best-effort copy of Firefox extension files into an isolated profile.
-fn seed_firefox_extensions(browser: &Browser, isolated_profile: &Path) -> Result<()> {
-    let Some(source) = browser::firefox_default_profile_dir(browser) else {
-        return Ok(());
-    };
-    for name in ["extensions", "extension-store", "extension-preferences.json"] {
-        let src = source.join(name);
-        let dest = isolated_profile.join(name);
-        if src.is_dir() {
-            copy_dir_recursive(&src, &dest)?;
-        } else if src.is_file() {
-            if let Some(parent) = dest.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            let _ = fs::copy(&src, &dest);
-        }
-    }
-    Ok(())
-}
-
-fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
-    fs::create_dir_all(dest)
-        .with_context(|| format!("create {}", dest.display()))?;
-    for entry in fs::read_dir(src).with_context(|| format!("read {}", src.display()))? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        let from = entry.path();
-        let to = dest.join(entry.file_name());
-        if ty.is_dir() {
-            copy_dir_recursive(&from, &to)?;
-        } else if ty.is_file() {
-            fs::copy(&from, &to)
-                .with_context(|| format!("copy {} -> {}", from.display(), to.display()))?;
-        }
-        // Skip symlinks and special files.
-    }
-    Ok(())
-}
 
 pub fn delete_webapp(app: &DesktopEntry) -> Result<()> {
     desktop::delete_desktop_file(&app.path)?;
@@ -619,7 +699,7 @@ mod integration {
         let listed = list_webapps().unwrap();
         assert!(!listed.iter().any(|a| a.codename == entry.codename));
 
-        // Shared profile: no private user-data-dir for Chromium
+        // Shared profile: private user-data-dir (separate dock process) + seeded data
         let browser = browser::detect_browsers()
             .into_iter()
             .find(|b| b.family == BrowserFamily::Chromium)
@@ -639,9 +719,25 @@ mod integration {
         assert!(shared_desktop.contains("X-WebApp-ProfileMode=shared"));
         assert!(shared_desktop.contains("X-WebApp-Isolated=false"));
         if browser.family == BrowserFamily::Chromium {
-            assert!(!shared.exec.contains("--user-data-dir="));
+            assert!(
+                shared.exec.contains("--user-data-dir="),
+                "shared mode must use private user-data-dir for dock separation"
+            );
             let profile = paths::chromium_profile_path(&shared.codename).unwrap();
-            assert!(!profile.exists(), "shared mode must not create private profile");
+            assert!(
+                profile.exists(),
+                "shared mode must create a private profile directory"
+            );
+            // Icon= should match StartupWMClass (theme name), not only an absolute path
+            assert!(
+                shared_desktop.contains(&format!("Icon={}", shared.startup_wm_class))
+                    || shared_desktop.contains("Icon=/"),
+                "desktop Icon should be theme class or path:\n{shared_desktop}"
+            );
+            assert!(shared_desktop.contains(&format!(
+                "StartupWMClass={}",
+                shared.startup_wm_class
+            )));
         }
         delete_webapp(&shared).unwrap();
         assert!(!shared.path.exists());
@@ -680,7 +776,10 @@ mod integration {
         assert!(desktop.contains("Name=ZWM Edited"));
         assert!(desktop.contains("X-WebApp-ProfileMode=shared"));
         if browser.family == BrowserFamily::Chromium {
-            assert!(!updated.exec.contains("--user-data-dir="));
+            assert!(
+                updated.exec.contains("--user-data-dir="),
+                "shared edit must keep private user-data-dir"
+            );
         }
         delete_webapp(&updated).unwrap();
 

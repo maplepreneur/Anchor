@@ -50,6 +50,7 @@ Web tools are where a huge amount of real work happens—email, docs, chat, dash
   - **Isolated** (default) — private empty profile (own dock icon)
   - **Shared** — private profile **seeded** from your browser (logins & extensions like 1Password) while keeping a **separate dock icon**
 - **List, launch, edit, and remove** managed apps from one window
+- **Keyboard-first UI** — Tab through the create form, shortcuts for add/launch/edit/delete, **F1** shortcut reference
 - **Automatic repair** of dock-matching metadata on startup (important on Wayland)
 
 ---
@@ -105,20 +106,37 @@ Full requirements, PATH setup, upgrade from the old name, uninstall, and trouble
 ## Usage
 
 1. Open **Anchor**
-2. Click **+** (Add Web App)
-3. Enter **Name** and **URL**
+2. Click **+** (Add Web App) or press **Ctrl+N**
+3. Enter **Name** and **URL** (use **Tab** / **Shift+Tab** to move between fields)
 4. Choose a **Browser** (or Default browser)
 5. Choose a **Profile** mode (Isolated or Shared)
 6. **Fetch icon** or **Choose image…**
-7. Click **Create**
-8. Launch from Super search, the app menu, or the ▶ button in Anchor
-9. Use the pencil button on any row to **edit** name, URL, browser, profile mode, or icon (the app id stays the same)
+7. Click **Create** or press **Enter**
+8. Launch from Super search, the app menu, the ▶ button, or **Enter** on a selected row
+9. Use the pencil button (or **Ctrl+E**) to **edit**; trash (or **Delete** / **Ctrl+D**) to remove with confirmation
+
+Press **F1** or click the keyboard icon in the header for a full shortcut list.
+
+### Keyboard shortcuts
+
+| Action | Shortcut |
+|---|---|
+| Add web app | **Ctrl+N** |
+| Refresh list | **Ctrl+R** or **F5** |
+| Show shortcuts | **F1** or **Ctrl+?** |
+| Move selection | **↑** / **↓** or **K** / **J** (list focused) |
+| Launch selected | **Enter** (list focused) or **Ctrl+Enter** |
+| Edit selected | **Ctrl+E** (or **E** when list focused) |
+| Remove selected | **Ctrl+D** or **Delete** (confirmation dialog) |
+| Next / previous field (dialog) | **Tab** / **Shift+Tab** |
+| Create / Save (dialog) | **Enter** in Name or URL |
+| Cancel dialog | **Esc** |
 
 **Tips**
 
 - **Isolated** apps start signed out. Sign in once inside each web app.
 - Use **Shared browser profile** when you need password managers (e.g. 1Password) or existing logins. Anchor copies data into a **private** profile so the web app is a separate process with its **own dock icon** (unlike joining the browser’s profile, which groups under the browser—Zorin Web App Manager’s bug). Close the browser before creating/updating Shared apps for a more complete copy.
-- Dock matching: `StartupWMClass` equals Chromium’s Wayland `app_id`, and `Icon` uses that same name in the hicolor theme.
+- Dock matching: `StartupWMClass` equals Chromium’s Wayland `app_id`; the list uses an absolute PNG path for favicons.
 
 ---
 

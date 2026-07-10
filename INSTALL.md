@@ -96,6 +96,18 @@ Then open **Anchor** from Super search / the application menu, or run:
 anchor
 ```
 
+### Keyboard shortcuts
+
+In the main window, press **F1** (or the keyboard icon in the header) for the in-app shortcut list. Highlights:
+
+| Action | Shortcut |
+|---|---|
+| Add web app | Ctrl+N |
+| Refresh | Ctrl+R / F5 |
+| Launch / Edit / Remove selected | Enter / Ctrl+E / Delete or Ctrl+D |
+| Move selection | ↑↓ or J/K |
+| Dialog fields | Tab / Shift+Tab · Enter to save · Esc to cancel |
+
 ### PATH tip
 
 If `anchor` is not found in a new terminal:

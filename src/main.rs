@@ -7,8 +7,6 @@ mod paths;
 mod ui;
 mod webapp;
 
-use gtk::gio;
-use gtk::glib;
 use gtk::prelude::*;
 use libadwaita::Application;
 
@@ -42,18 +40,10 @@ fn main() -> glib::ExitCode {
         }
 
         let main = MainWindow::new(app);
-        install_refresh_action(app, &main);
         main.present();
     });
 
     app.run()
 }
 
-fn install_refresh_action(app: &Application, main: &std::rc::Rc<MainWindow>) {
-    let action = gio::SimpleAction::new("refresh", None);
-    let main = std::rc::Rc::clone(main);
-    action.connect_activate(move |_, _| {
-        main.reload();
-    });
-    app.add_action(&action);
-}
+use gtk::glib;

@@ -7,11 +7,11 @@ use std::rc::Rc;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk::{
-    Align, Box as GtkBox, Button, DropDown, Entry, FileDialog, FileFilter, Image, Label,
-    Orientation, StringList,
+    Align, Box as GtkBox, Button, FileDialog, FileFilter, Image, Label, Orientation, PolicyType,
+    ScrolledWindow, StringList,
 };
 use libadwaita::prelude::*;
-use libadwaita::{ActionRow, PreferencesGroup};
+use libadwaita::{ComboRow, EntryRow, PreferencesGroup};
 
 use crate::browser::{self, ProfileMode};
 use crate::desktop::DesktopEntry;
@@ -62,42 +62,43 @@ impl CreateDialog {
             return;
         }
 
+        // Floating + fixed height so the dialog is not clipped to a short parent
+        // window; the form body scrolls when content is taller.
         let dialog = libadwaita::Dialog::builder()
             .title(if is_edit {
                 "Edit Web App"
             } else {
                 "Add Web App"
             })
-            .content_width(480)
+            .content_width(500)
+            .content_height(560)
+            .presentation_mode(libadwaita::DialogPresentationMode::Floating)
             .build();
 
         let toast_overlay = libadwaita::ToastOverlay::new();
 
-        let name_entry = Entry::builder()
-            .placeholder_text("e.g. YouTube")
-            .hexpand(true)
+        // EntryRow / ComboRow participate correctly in keyboard focus (Tab order).
+        let name_row = EntryRow::builder()
+            .title("Name")
+            .text(
+                existing
+                    .as_ref()
+                    .map(|a| a.name.as_str())
+                    .unwrap_or(""),
+            )
             .build();
-        let url_entry = Entry::builder()
-            .placeholder_text("e.g. https://youtube.com")
-            .hexpand(true)
+        name_row.set_show_apply_button(false);
+
+        let url_row = EntryRow::builder()
+            .title("URL")
+            .text(existing.as_ref().map(|a| a.url.as_str()).unwrap_or(""))
             .build();
+        url_row.set_show_apply_button(false);
 
-        if let Some(app) = existing.as_ref() {
-            name_entry.set_text(&app.name);
-            url_entry.set_text(&app.url);
-        }
-
-        let name_row = ActionRow::builder().title("Name").build();
-        name_row.add_suffix(&name_entry);
-        name_row.set_activatable_widget(Some(&name_entry));
-
-        let url_row = ActionRow::builder().title("URL").build();
-        url_row.add_suffix(&url_entry);
-        url_row.set_activatable_widget(Some(&url_entry));
-
-        // Browser dropdown
+        // Browser dropdown (ComboRow)
         let browser_names: Vec<String> = browsers.iter().map(|b| b.name.clone()).collect();
-        let model = StringList::new(&browser_names.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+        let browser_model =
+            StringList::new(&browser_names.iter().map(|s| s.as_str()).collect::<Vec<_>>());
         let mut browser_selected: u32 = 0;
         if let Some(app) = existing.as_ref() {
             if let Some(idx) = browsers.iter().position(|b| b.name == app.browser) {
@@ -113,36 +114,49 @@ impl CreateDialog {
                 browser_selected = idx as u32;
             }
         }
-        let browser_drop = DropDown::builder()
-            .model(&model)
+        let browser_row = ComboRow::builder()
+            .title("Browser")
+            .model(&browser_model)
             .selected(browser_selected)
             .build();
-        let browser_row = ActionRow::builder().title("Browser").build();
-        browser_row.add_suffix(&browser_drop);
+        // Display StringObject.string for each item
+        browser_row.set_expression(Some(
+            gtk::PropertyExpression::new(
+                gtk::StringObject::static_type(),
+                gtk::Expression::NONE,
+                "string",
+            )
+            .upcast(),
+        ));
 
-        // Profile mode: isolated / shared
+        // Profile mode
         let profile_labels = ["Isolated", "Shared browser profile"];
         let profile_model = StringList::new(&profile_labels);
         let initial_profile = existing
             .as_ref()
             .map(|a| a.profile_mode)
             .unwrap_or(ProfileMode::Isolated);
-        let profile_drop = DropDown::builder()
+        let profile_row = ComboRow::builder()
+            .title("Profile")
+            .subtitle(profile_mode_subtitle(initial_profile))
             .model(&profile_model)
             .selected(profile_mode_to_index(initial_profile))
             .build();
-        let profile_row = ActionRow::builder()
-            .title("Profile")
-            .subtitle(profile_mode_subtitle(initial_profile))
-            .build();
-        profile_row.add_suffix(&profile_drop);
+        profile_row.set_expression(Some(
+            gtk::PropertyExpression::new(
+                gtk::StringObject::static_type(),
+                gtk::Expression::NONE,
+                "string",
+            )
+            .upcast(),
+        ));
 
         let form = PreferencesGroup::builder()
             .title("Web App")
             .description(if is_edit {
-                "Update this app’s name, URL, browser, profile mode, or icon."
+                "Update this app’s name, URL, browser, profile mode, or icon. Tab moves between fields."
             } else {
-                "Choose how the app uses your browser profile and extensions."
+                "Choose how the app uses your browser profile and extensions. Tab moves between fields."
             })
             .build();
         form.add(&name_row);
@@ -175,8 +189,14 @@ impl CreateDialog {
             }
         }
 
-        let fetch_btn = Button::builder().label("Fetch icon").build();
-        let choose_btn = Button::builder().label("Choose image…").build();
+        let fetch_btn = Button::builder()
+            .label("Fetch icon")
+            .focusable(true)
+            .build();
+        let choose_btn = Button::builder()
+            .label("Choose image…")
+            .focusable(true)
+            .build();
 
         let icon_buttons = GtkBox::new(Orientation::Horizontal, 8);
         icon_buttons.append(&fetch_btn);
@@ -201,7 +221,7 @@ impl CreateDialog {
             .orientation(Orientation::Vertical)
             .spacing(18)
             .margin_top(18)
-            .margin_bottom(18)
+            .margin_bottom(12)
             .margin_start(18)
             .margin_end(18)
             .build();
@@ -219,69 +239,100 @@ impl CreateDialog {
 
         {
             let hint = hint.clone();
-            let profile_row = profile_row.clone();
-            profile_drop.connect_selected_notify(move |drop| {
-                let mode = profile_mode_from_index(drop.selected());
+            profile_row.connect_selected_notify(move |row| {
+                let mode = profile_mode_from_index(row.selected());
                 hint.set_label(profile_mode_hint(mode));
-                profile_row.set_subtitle(profile_mode_subtitle(mode));
+                row.set_subtitle(profile_mode_subtitle(mode));
             });
         }
+
+        let scrolled = ScrolledWindow::builder()
+            .hscrollbar_policy(PolicyType::Never)
+            .vscrollbar_policy(PolicyType::Automatic)
+            .propagate_natural_width(true)
+            .vexpand(true)
+            .hexpand(true)
+            .child(&page)
+            .build();
 
         let submit_btn = Button::builder()
             .label(if is_edit { "Save" } else { "Create" })
             .css_classes(["suggested-action", "pill"])
             .halign(Align::End)
-            .sensitive(is_edit) // edit starts with valid fields; create waits for input
+            .focusable(true)
+            .sensitive(is_edit)
             .build();
         let cancel_btn = Button::builder()
             .label("Cancel")
             .css_classes(["pill"])
             .halign(Align::End)
+            .focusable(true)
             .build();
 
         let actions = GtkBox::builder()
             .orientation(Orientation::Horizontal)
             .spacing(8)
             .halign(Align::End)
-            .margin_top(12)
             .build();
         actions.append(&cancel_btn);
         actions.append(&submit_btn);
-        page.append(&actions);
 
-        toast_overlay.set_child(Some(&page));
+        let shortcut_hint = Label::builder()
+            .label("Tab / Shift+Tab move fields · Enter creates/saves · Esc cancels")
+            .css_classes(["dim-label", "caption"])
+            .halign(Align::Start)
+            .wrap(true)
+            .build();
+
+        let footer = GtkBox::builder()
+            .orientation(Orientation::Vertical)
+            .spacing(8)
+            .margin_top(8)
+            .margin_bottom(16)
+            .margin_start(18)
+            .margin_end(18)
+            .build();
+        footer.append(&shortcut_hint);
+        footer.append(&actions);
+
+        let outer = GtkBox::builder()
+            .orientation(Orientation::Vertical)
+            .vexpand(true)
+            .build();
+        outer.append(&scrolled);
+        outer.append(&footer);
+
+        toast_overlay.set_child(Some(&outer));
         dialog.set_child(Some(&toast_overlay));
 
         let icon_state = Rc::new(RefCell::new(initial_icon));
         let browsers = Rc::new(browsers);
         let existing = Rc::new(existing);
 
-        // Enable submit when name + URL are set
         let update_sensitive = {
-            let name_entry = name_entry.clone();
-            let url_entry = url_entry.clone();
+            let name_row = name_row.clone();
+            let url_row = url_row.clone();
             let submit_btn = submit_btn.clone();
             move || {
-                let name_ok = !name_entry.text().trim().is_empty();
-                let url_ok = !url_entry.text().trim().is_empty();
+                let name_ok = !name_row.text().trim().is_empty();
+                let url_ok = !url_row.text().trim().is_empty();
                 submit_btn.set_sensitive(name_ok && url_ok);
             }
         };
 
         {
             let update = update_sensitive.clone();
-            name_entry.connect_changed(move |_| update());
+            name_row.connect_changed(move |_: &EntryRow| update());
         }
         {
             let update = update_sensitive.clone();
-            url_entry.connect_changed(move |_| update());
+            url_row.connect_changed(move |_: &EntryRow| update());
         }
-        // Ensure edit mode is sensitive with prefilled values
         update_sensitive();
 
         // Fetch icon
         {
-            let url_entry = url_entry.clone();
+            let url_row = url_row.clone();
             let icon_image = icon_image.clone();
             let icon_status = icon_status.clone();
             let icon_state = Rc::clone(&icon_state);
@@ -290,7 +341,7 @@ impl CreateDialog {
             let fetch_btn_c = fetch_btn.clone();
 
             fetch_btn.connect_clicked(move |_| {
-                let url = url_entry.text().to_string();
+                let url = url_row.text().to_string();
                 if url.trim().is_empty() {
                     toast_overlay.add_toast(libadwaita::Toast::new("Enter a URL first"));
                     return;
@@ -327,11 +378,11 @@ impl CreateDialog {
             });
         }
 
-        // Auto-fetch when URL activates (create only, if no icon yet)
+        // Enter in URL (create): fetch icon if needed, else submit is handled below
         if !is_edit {
             let fetch_btn = fetch_btn.clone();
             let icon_state = Rc::clone(&icon_state);
-            url_entry.connect_activate(move |_| {
+            url_row.connect_entry_activated(move |_| {
                 if matches!(*icon_state.borrow(), IconState::None) {
                     fetch_btn.emit_clicked();
                 }
@@ -404,30 +455,35 @@ impl CreateDialog {
             });
         }
 
-        // Create / Save
-        {
+        // Shared submit logic for button + Enter on name
+        let do_submit = {
             let dialog = dialog.clone();
-            let name_entry = name_entry.clone();
-            let url_entry = url_entry.clone();
-            let browser_drop = browser_drop.clone();
-            let profile_drop = profile_drop.clone();
+            let name_row = name_row.clone();
+            let url_row = url_row.clone();
+            let browser_row = browser_row.clone();
+            let profile_row = profile_row.clone();
             let browsers = Rc::clone(&browsers);
             let icon_state = Rc::clone(&icon_state);
             let toast_overlay = toast_overlay.clone();
             let submit_btn = submit_btn.clone();
             let existing = Rc::clone(&existing);
             let on_done = Rc::new(RefCell::new(Some(on_done)));
+            let icon_image = icon_image.clone();
+            let icon_status = icon_status.clone();
             let is_edit = is_edit;
 
-            submit_btn.connect_clicked(move |btn| {
-                let name = name_entry.text().to_string();
-                let url = url_entry.text().to_string();
-                let idx = browser_drop.selected() as usize;
+            Rc::new(move || {
+                if !submit_btn.is_sensitive() {
+                    return;
+                }
+                let name = name_row.text().to_string();
+                let url = url_row.text().to_string();
+                let idx = browser_row.selected() as usize;
                 let Some(browser) = browsers.get(idx).cloned() else {
                     toast_overlay.add_toast(libadwaita::Toast::new("Select a browser"));
                     return;
                 };
-                let profile_mode = profile_mode_from_index(profile_drop.selected());
+                let profile_mode = profile_mode_from_index(profile_row.selected());
 
                 let icon_source = match &*icon_state.borrow() {
                     IconState::None => IconSource::Fetch,
@@ -436,7 +492,7 @@ impl CreateDialog {
                     IconState::Local(p) => IconSource::Local(p.clone()),
                 };
 
-                btn.set_sensitive(false);
+                submit_btn.set_sensitive(false);
                 let result = if let Some(app) = existing.as_ref() {
                     webapp::update_webapp(EditRequest {
                         existing: app.clone(),
@@ -465,7 +521,7 @@ impl CreateDialog {
                         }
                     }
                     Err(e) => {
-                        btn.set_sensitive(true);
+                        submit_btn.set_sensitive(true);
                         let msg = format!("{e:#}");
                         if msg.contains("favicon") || msg.contains("icon") {
                             icon_image.set_icon_name(Some("dialog-warning-symbolic"));
@@ -481,10 +537,37 @@ impl CreateDialog {
                         toast_overlay.add_toast(libadwaita::Toast::new(&msg));
                     }
                 }
+            })
+        };
+
+        {
+            let do_submit = Rc::clone(&do_submit);
+            submit_btn.connect_clicked(move |_| do_submit());
+        }
+        // Enter in Name field submits when form is valid
+        {
+            let do_submit = Rc::clone(&do_submit);
+            name_row.connect_entry_activated(move |_| do_submit());
+        }
+        // Enter in URL (edit, or after icon ready) submits
+        {
+            let do_submit = Rc::clone(&do_submit);
+            let icon_state = Rc::clone(&icon_state);
+            let is_edit = is_edit;
+            url_row.connect_entry_activated(move |_| {
+                if is_edit || !matches!(*icon_state.borrow(), IconState::None) {
+                    do_submit();
+                }
             });
         }
 
         dialog.present(Some(parent));
+
+        // Focus the name field so the first Tab starts from a predictable place
+        let name_focus = name_row.clone();
+        glib::idle_add_local_once(move || {
+            let _ = name_focus.grab_focus();
+        });
     }
 }
 
@@ -527,7 +610,7 @@ fn gio_spawn_fetch<F>(url: String, on_done: F)
 where
     F: FnOnce(anyhow::Result<PathBuf>) + 'static,
 {
-    let (sender, receiver) = async_channel_unbounded();
+    let (sender, receiver) = std::sync::mpsc::channel();
 
     std::thread::spawn(move || {
         let result = webapp::preview_favicon(&url);
@@ -543,8 +626,8 @@ where
                 }
                 glib::ControlFlow::Break
             }
-            Err(async_channel::TryRecvError::Empty) => glib::ControlFlow::Continue,
-            Err(async_channel::TryRecvError::Closed) => {
+            Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                 if let Some(cb) = on_done.take() {
                     cb(Err(anyhow::anyhow!("favicon worker closed")));
                 }
@@ -552,41 +635,4 @@ where
             }
         }
     });
-}
-
-mod async_channel {
-    use std::sync::mpsc::{self, Receiver, Sender, TryRecvError as StdTry};
-
-    pub struct SenderWrap<T>(Sender<T>);
-    pub struct ReceiverWrap<T>(Receiver<T>);
-
-    pub enum TryRecvError {
-        Empty,
-        Closed,
-    }
-
-    impl<T> SenderWrap<T> {
-        pub fn send(&self, v: T) -> Result<(), ()> {
-            self.0.send(v).map_err(|_| ())
-        }
-    }
-
-    impl<T> ReceiverWrap<T> {
-        pub fn try_recv(&self) -> Result<T, TryRecvError> {
-            match self.0.try_recv() {
-                Ok(v) => Ok(v),
-                Err(StdTry::Empty) => Err(TryRecvError::Empty),
-                Err(StdTry::Disconnected) => Err(TryRecvError::Closed),
-            }
-        }
-    }
-
-    pub fn unbounded<T>() -> (SenderWrap<T>, ReceiverWrap<T>) {
-        let (s, r) = mpsc::channel();
-        (SenderWrap(s), ReceiverWrap(r))
-    }
-}
-
-fn async_channel_unbounded<T>() -> (async_channel::SenderWrap<T>, async_channel::ReceiverWrap<T>) {
-    async_channel::unbounded()
 }

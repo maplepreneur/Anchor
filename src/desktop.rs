@@ -7,6 +7,7 @@ use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 
+use crate::browser::ProfileMode;
 use crate::paths::{self, is_manager_tag, MANAGER_TAG};
 
 #[derive(Debug, Clone)]
@@ -19,6 +20,7 @@ pub struct DesktopEntry {
     pub icon: String,
     pub exec: String,
     pub startup_wm_class: String,
+    pub profile_mode: ProfileMode,
 }
 
 /// Escape a value for a desktop-entry key (no newlines).
@@ -36,8 +38,14 @@ pub fn write_desktop_file(
     icon: &Path,
     exec: &str,
     window_class: &str,
+    profile_mode: ProfileMode,
 ) -> Result<PathBuf> {
     let path = paths::desktop_path(codename)?;
+    let isolated = if profile_mode.is_isolated() {
+        "true"
+    } else {
+        "false"
+    };
     let content = format!(
         r#"[Desktop Entry]
 Version=1.0
@@ -53,7 +61,8 @@ Categories=Network;WebBrowser;
 X-WebApp-Manager={manager}
 X-WebApp-URL={url}
 X-WebApp-Browser={browser}
-X-WebApp-Isolated=true
+X-WebApp-Isolated={isolated}
+X-WebApp-ProfileMode={profile_mode}
 "#,
         name = escape_value(name),
         exec = exec, // Exec is already carefully built
@@ -62,6 +71,8 @@ X-WebApp-Isolated=true
         manager = MANAGER_TAG,
         url = escape_value(url),
         browser = escape_value(browser_name),
+        isolated = isolated,
+        profile_mode = profile_mode.as_desktop_value(),
     );
 
     if let Some(parent) = path.parent() {
@@ -94,6 +105,8 @@ fn parse_desktop_file(path: &Path) -> Result<DesktopEntry> {
     let mut exec = None;
     let mut manager = None;
     let mut startup_wm_class = None;
+    let mut profile_mode_key = None;
+    let mut isolated_key = None;
 
     for line in text.lines() {
         let line = line.trim();
@@ -109,6 +122,8 @@ fn parse_desktop_file(path: &Path) -> Result<DesktopEntry> {
                 "X-WebApp-URL" => url = Some(v.to_string()),
                 "X-WebApp-Browser" => browser = Some(v.to_string()),
                 "X-WebApp-Manager" => manager = Some(v.to_string()),
+                "X-WebApp-ProfileMode" => profile_mode_key = Some(v.to_string()),
+                "X-WebApp-Isolated" => isolated_key = Some(v.to_string()),
                 _ => {}
             }
         }
@@ -120,6 +135,15 @@ fn parse_desktop_file(path: &Path) -> Result<DesktopEntry> {
     if !is_manager_tag(manager_tag) {
         return Err(anyhow!("not managed by Anchor (got {manager_tag})"));
     }
+
+    let profile_mode = if let Some(raw) = profile_mode_key.as_deref() {
+        ProfileMode::from_desktop_value(raw).unwrap_or(ProfileMode::Isolated)
+    } else if isolated_key.as_deref() == Some("false") {
+        ProfileMode::Shared
+    } else {
+        // Legacy apps always used isolated profiles.
+        ProfileMode::Isolated
+    };
 
     let file_name = path
         .file_name()
@@ -140,6 +164,7 @@ fn parse_desktop_file(path: &Path) -> Result<DesktopEntry> {
         icon: icon.unwrap_or_default(),
         exec: exec.unwrap_or_default(),
         startup_wm_class: startup_wm_class.unwrap_or_default(),
+        profile_mode,
     })
 }
 
@@ -208,6 +233,7 @@ X-WebApp-Manager={MANAGER_TAG}
 X-WebApp-URL=https://example.com
 X-WebApp-Browser=Brave
 X-WebApp-Isolated=true
+X-WebApp-ProfileMode=isolated
 "#
         );
         // Also verify legacy tag is accepted
@@ -219,7 +245,8 @@ X-WebApp-Isolated=true
         fs::write(&legacy_path, legacy).unwrap();
         let legacy_entry = parse_desktop_file(&legacy_path).unwrap();
         assert_eq!(legacy_entry.codename, "Legacy9999");
-        fs::write(&path, content).unwrap();
+        assert_eq!(legacy_entry.profile_mode, ProfileMode::Isolated);
+        fs::write(&path, &content).unwrap();
         let entry = parse_desktop_file(&path).unwrap();
         assert_eq!(entry.name, "Test App");
         assert_eq!(entry.url, "https://example.com");
@@ -227,6 +254,40 @@ X-WebApp-Isolated=true
         assert_eq!(entry.codename, "TestApp9999");
         assert!(entry.exec.contains("--app="));
         assert_eq!(entry.startup_wm_class, "WebApp-TestApp9999");
+        assert_eq!(entry.profile_mode, ProfileMode::Isolated);
+
+        // Shared mode + legacy Isolated=false without ProfileMode
+        let shared_path = apps.join("webapp-Shared9999.desktop");
+        let shared = content
+            .replace("TestApp9999", "Shared9999")
+            .replace("Test App", "Shared App")
+            .replace("X-WebApp-Isolated=true", "X-WebApp-Isolated=false")
+            .replace(
+                "X-WebApp-ProfileMode=isolated",
+                "X-WebApp-ProfileMode=shared",
+            );
+        fs::write(&shared_path, shared).unwrap();
+        assert_eq!(
+            parse_desktop_file(&shared_path).unwrap().profile_mode,
+            ProfileMode::Shared
+        );
+
+        let legacy_shared = apps.join("webapp-LegacyShared9999.desktop");
+        let mut legacy_shared_body = content
+            .replace("TestApp9999", "LegacyShared9999")
+            .replace("X-WebApp-Isolated=true", "X-WebApp-Isolated=false");
+        // Strip ProfileMode to exercise fallback
+        legacy_shared_body = legacy_shared_body
+            .lines()
+            .filter(|l| !l.starts_with("X-WebApp-ProfileMode="))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(&legacy_shared, legacy_shared_body).unwrap();
+        assert_eq!(
+            parse_desktop_file(&legacy_shared).unwrap().profile_mode,
+            ProfileMode::Shared
+        );
+
         let _ = fs::remove_dir_all(&tmp);
     }
 }

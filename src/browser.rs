@@ -1,4 +1,4 @@
-//! Detect installed browsers and build isolated launch commands.
+//! Detect installed browsers and build launch commands (isolated or shared profiles).
 
 use std::path::{Path, PathBuf};
 
@@ -10,6 +10,48 @@ use crate::paths;
 pub enum BrowserFamily {
     Chromium,
     Firefox,
+}
+
+/// How a web app uses browser profile data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProfileMode {
+    /// Private profile under Anchor data dir (default).
+    #[default]
+    Isolated,
+    /// Use the browser’s default profile (extensions, cookies, logins).
+    Shared,
+    /// Private profile seeded with extensions from the selected browser.
+    IsolatedWithExtensions,
+}
+
+impl ProfileMode {
+    pub fn as_desktop_value(self) -> &'static str {
+        match self {
+            Self::Isolated => "isolated",
+            Self::Shared => "shared",
+            Self::IsolatedWithExtensions => "isolated-extensions",
+        }
+    }
+
+    pub fn from_desktop_value(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "isolated" => Some(Self::Isolated),
+            "shared" => Some(Self::Shared),
+            "isolated-extensions" | "isolated_with_extensions" => {
+                Some(Self::IsolatedWithExtensions)
+            }
+            _ => None,
+        }
+    }
+
+    /// `X-WebApp-Isolated` compatibility flag (false only for Shared).
+    pub fn is_isolated(self) -> bool {
+        !matches!(self, Self::Shared)
+    }
+
+    pub fn uses_private_profile(self) -> bool {
+        matches!(self, Self::Isolated | Self::IsolatedWithExtensions)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -419,6 +461,7 @@ pub fn build_exec(
     codename: &str,
     url: &str,
     icon_path: &Path,
+    profile_mode: ProfileMode,
 ) -> anyhow::Result<String> {
     let class = window_class(browser, codename, url);
     let exec = browser.exec_path.display().to_string();
@@ -430,24 +473,195 @@ pub fn build_exec(
 
     match browser.family {
         BrowserFamily::Chromium => {
-            let profile = paths::chromium_profile_path(codename)?;
-            let profile_q = shell_quote(&profile.display().to_string());
             // --class is honored on X11; on Wayland Chromium derives app_id from the URL
             // (see chromium_wayland_app_id). We still pass matching --class/--name for X11.
-            Ok(format!(
-                "{exec_q} --app={url_q} --class={class_q} --name={class_q} --user-data-dir={profile_q}"
-            ))
+            let base = format!("{exec_q} --app={url_q} --class={class_q} --name={class_q}");
+            if profile_mode.uses_private_profile() {
+                let profile = paths::chromium_profile_path(codename)?;
+                let profile_q = shell_quote(&profile.display().to_string());
+                Ok(format!("{base} --user-data-dir={profile_q}"))
+            } else {
+                // Shared: default user-data-dir so extensions (e.g. 1Password) work.
+                Ok(base)
+            }
         }
         BrowserFamily::Firefox => {
-            let profile = paths::firefox_profile_path(codename)?;
-            let profile_q = shell_quote(&profile.display().to_string());
             // Wrap in sh -c so we can set XAPP_FORCE_GTKWINDOW_ICON for better icon behavior
             // on some desktops. Single-quoted inside so desktop file parsing is safe.
-            Ok(format!(
-                "sh -c 'XAPP_FORCE_GTKWINDOW_ICON={icon_q} {exec_q} --class {class_q} --name {class_q} --profile {profile_q} --no-remote {url_q}'"
-            ))
+            if profile_mode.uses_private_profile() {
+                let profile = paths::firefox_profile_path(codename)?;
+                let profile_q = shell_quote(&profile.display().to_string());
+                Ok(format!(
+                    "sh -c 'XAPP_FORCE_GTKWINDOW_ICON={icon_q} {exec_q} --class {class_q} --name {class_q} --profile {profile_q} --no-remote {url_q}'"
+                ))
+            } else {
+                // Shared: open a new instance against the default profile (no dedicated Anchor profile).
+                // May conflict if the default profile is locked by a running Firefox.
+                Ok(format!(
+                    "sh -c 'XAPP_FORCE_GTKWINDOW_ICON={icon_q} {exec_q} --class {class_q} --name {class_q} --new-instance {url_q}'"
+                ))
+            }
         }
     }
+}
+
+/// Resolve the browser’s default Chromium user-data directory (native or Flatpak).
+pub fn chromium_default_user_data_dir(browser: &Browser) -> Option<PathBuf> {
+    if browser.family != BrowserFamily::Chromium {
+        return None;
+    }
+    let home = dirs::home_dir()?;
+    let config = dirs::config_dir()?;
+    let path = browser.exec_path.to_string_lossy().to_ascii_lowercase();
+    let name = browser.name.to_ascii_lowercase();
+    let key = format!("{path} {name}");
+
+    // Flatpak: ~/.var/app/<id>/config/<product-path>
+    let flatpak_id = if key.contains("com.brave.browser") || path.contains("com.brave.browser") {
+        Some(("com.brave.Browser", "BraveSoftware/Brave-Browser"))
+    } else if key.contains("com.google.chrome") || path.contains("com.google.chrome") {
+        Some(("com.google.Chrome", "google-chrome"))
+    } else if key.contains("org.chromium.chromium") || path.contains("org.chromium.chromium") {
+        Some(("org.chromium.Chromium", "chromium"))
+    } else if key.contains("com.microsoft.edge") || path.contains("com.microsoft.edge") {
+        Some(("com.microsoft.Edge", "microsoft-edge"))
+    } else {
+        None
+    };
+
+    if let Some((app_id, rel)) = flatpak_id {
+        let p = home.join(".var/app").join(app_id).join("config").join(rel);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+
+    let native: PathBuf = if key.contains("brave") {
+        config.join("BraveSoftware/Brave-Browser")
+    } else if key.contains("msedge") || key.contains("microsoft-edge") || key.contains("edge") {
+        config.join("microsoft-edge")
+    } else if key.contains("vivaldi") {
+        config.join("vivaldi")
+    } else if key.contains("ungoogled") || key.contains("chromium") {
+        config.join("chromium")
+    } else if key.contains("chrome") {
+        config.join("google-chrome")
+    } else {
+        config.join("chromium")
+    };
+
+    if native.is_dir() {
+        Some(native)
+    } else {
+        None
+    }
+}
+
+/// Resolve the Firefox-family default profile directory via profiles.ini when possible.
+pub fn firefox_default_profile_dir(browser: &Browser) -> Option<PathBuf> {
+    if browser.family != BrowserFamily::Firefox {
+        return None;
+    }
+    let home = dirs::home_dir()?;
+    let path = browser.exec_path.to_string_lossy().to_ascii_lowercase();
+    let name = browser.name.to_ascii_lowercase();
+    let key = format!("{path} {name}");
+
+    let mut roots = Vec::new();
+    if key.contains("librewolf") {
+        roots.push(home.join(".librewolf"));
+        roots.push(home.join(".var/app/io.gitlab.librewolf-community/.librewolf"));
+    } else if key.contains("zen") {
+        roots.push(home.join(".zen"));
+        roots.push(home.join(".var/app/app.zen_browser.zen/.zen"));
+    } else if key.contains("floorp") {
+        roots.push(home.join(".floorp"));
+    } else if key.contains("waterfox") {
+        roots.push(home.join(".waterfox"));
+    } else {
+        roots.push(home.join(".mozilla/firefox"));
+        roots.push(home.join(".var/app/org.mozilla.firefox/.mozilla/firefox"));
+    }
+
+    for root in roots {
+        if let Some(p) = parse_firefox_default_profile(&root) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn parse_firefox_default_profile(profiles_root: &Path) -> Option<PathBuf> {
+    let ini = profiles_root.join("profiles.ini");
+    let text = std::fs::read_to_string(ini).ok()?;
+    let mut best: Option<(i32, PathBuf)> = None;
+    let mut section_path: Option<String> = None;
+    let mut section_default = false;
+    let mut section_relative = true;
+    let mut section_name_is_default = false;
+
+    let flush = |best: &mut Option<(i32, PathBuf)>,
+                 path: &Option<String>,
+                 is_default: bool,
+                 relative: bool,
+                 name_default: bool,
+                 root: &Path| {
+        let Some(p) = path else { return };
+        let full = if relative {
+            root.join(p)
+        } else {
+            PathBuf::from(p)
+        };
+        if !full.is_dir() {
+            return;
+        }
+        // Prefer Default=1, then name containing default, then first valid.
+        let score = if is_default {
+            3
+        } else if name_default {
+            2
+        } else {
+            1
+        };
+        match best {
+            None => *best = Some((score, full)),
+            Some((s, _)) if score > *s => *best = Some((score, full)),
+            _ => {}
+        }
+    };
+
+    for line in text.lines().chain(std::iter::once("")) {
+        let line = line.trim();
+        if line.starts_with('[') || line.is_empty() {
+            flush(
+                &mut best,
+                &section_path,
+                section_default,
+                section_relative,
+                section_name_is_default,
+                profiles_root,
+            );
+            section_path = None;
+            section_default = false;
+            section_relative = true;
+            section_name_is_default = false;
+            continue;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            match k.trim() {
+                "Path" => section_path = Some(v.trim().to_string()),
+                "Default" => section_default = v.trim() == "1",
+                "IsRelative" => section_relative = v.trim() != "0",
+                "Name" => {
+                    section_name_is_default =
+                        v.to_ascii_lowercase().contains("default");
+                }
+                _ => {}
+            }
+        }
+    }
+
+    best.map(|(_, p)| p)
 }
 
 /// Quote a value for use inside a desktop `Exec=` key / shell.
@@ -507,11 +721,41 @@ mod tests {
             "YouTube1234",
             "https://www.youtube.com/",
             Path::new("/tmp/icon.png"),
+            ProfileMode::Isolated,
         )
         .unwrap();
         assert!(exec.contains("--app="));
         assert!(exec.contains("--user-data-dir="));
         assert!(exec.contains("--class=brave-www.youtube.com__-Default"));
+    }
+
+    #[test]
+    fn chromium_shared_exec_omits_user_data_dir() {
+        let browser = brave();
+        let exec = build_exec(
+            &browser,
+            "YouTube1234",
+            "https://www.youtube.com/",
+            Path::new("/tmp/icon.png"),
+            ProfileMode::Shared,
+        )
+        .unwrap();
+        assert!(exec.contains("--app="));
+        assert!(!exec.contains("--user-data-dir="));
+    }
+
+    #[test]
+    fn chromium_isolated_with_extensions_uses_private_profile() {
+        let browser = brave();
+        let exec = build_exec(
+            &browser,
+            "YouTube1234",
+            "https://www.youtube.com/",
+            Path::new("/tmp/icon.png"),
+            ProfileMode::IsolatedWithExtensions,
+        )
+        .unwrap();
+        assert!(exec.contains("--user-data-dir="));
     }
 
     #[test]
@@ -526,11 +770,50 @@ mod tests {
             "Maps5678",
             "https://maps.google.com",
             Path::new("/tmp/icon.png"),
+            ProfileMode::Isolated,
         )
         .unwrap();
         assert!(exec.contains("--no-remote"));
         assert!(exec.contains("--profile"));
         assert!(exec.contains("WebApp-Maps5678"));
+    }
+
+    #[test]
+    fn firefox_shared_exec_uses_new_instance() {
+        let browser = Browser {
+            name: "Firefox".into(),
+            exec_path: PathBuf::from("/usr/bin/firefox"),
+            family: BrowserFamily::Firefox,
+        };
+        let exec = build_exec(
+            &browser,
+            "Maps5678",
+            "https://maps.google.com",
+            Path::new("/tmp/icon.png"),
+            ProfileMode::Shared,
+        )
+        .unwrap();
+        assert!(exec.contains("--new-instance"));
+        assert!(!exec.contains("--profile"));
+        assert!(!exec.contains("--no-remote"));
+    }
+
+    #[test]
+    fn profile_mode_desktop_roundtrip() {
+        for mode in [
+            ProfileMode::Isolated,
+            ProfileMode::Shared,
+            ProfileMode::IsolatedWithExtensions,
+        ] {
+            assert_eq!(
+                ProfileMode::from_desktop_value(mode.as_desktop_value()),
+                Some(mode)
+            );
+        }
+        assert_eq!(
+            ProfileMode::from_desktop_value("isolated-extensions"),
+            Some(ProfileMode::IsolatedWithExtensions)
+        );
     }
 
     #[test]

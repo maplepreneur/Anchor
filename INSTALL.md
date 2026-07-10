@@ -134,7 +134,11 @@ On **Wayland**, Chromium-family browsers set a URL-based window id (for example 
 
 ### Signed out inside the web app
 
-Isolated profiles start clean by design (so apps stay independent of your main browser). Sign in once inside each web app.
+**Isolated** (and **Isolated with extensions**) profiles start clean by design so apps stay independent of your main browser. Sign in once inside each web app.
+
+If you need logins or browser extensions (for example **1Password**) without signing in again, recreate the app with **Shared browser profile**. That uses your browser’s default profile. Chromium-family browsers work best; Firefox may refuse to open a second instance if the default profile is already locked.
+
+**Isolated with extensions** copies extension data from the selected browser into a private profile when the app is created. Cookies and passwords from the main browser are not copied.
 
 ### No browsers listed
 

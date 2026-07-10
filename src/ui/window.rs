@@ -8,6 +8,7 @@ use gtk::{gio, glib, Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, O
 use libadwaita::prelude::*;
 use libadwaita::{Application, ApplicationWindow, HeaderBar, StatusPage, Toast, ToastOverlay, ToolbarView};
 
+use crate::browser::ProfileMode;
 use crate::desktop::DesktopEntry;
 use crate::ui::create_dialog::CreateDialog;
 use crate::webapp;
@@ -39,7 +40,7 @@ impl MainWindow {
         let empty = StatusPage::builder()
             .icon_name("web-browser-symbolic")
             .title("No web apps yet")
-            .description("Anchor turns any website into a desktop app with its own icon and isolated browser profile.")
+            .description("Anchor turns any website into a desktop app with its own icon and browser profile.")
             .build();
 
         let empty_stack = gtk::Stack::new();
@@ -194,6 +195,13 @@ impl MainWindow {
             .css_classes(["flat"])
             .build();
 
+        let edit_btn = Button::builder()
+            .icon_name("document-edit-symbolic")
+            .tooltip_text("Edit web app")
+            .valign(Align::Center)
+            .css_classes(["flat"])
+            .build();
+
         let delete_btn = Button::builder()
             .icon_name("user-trash-symbolic")
             .tooltip_text("Remove web app")
@@ -212,6 +220,7 @@ impl MainWindow {
         hbox.append(&icon);
         hbox.append(&text_col);
         hbox.append(&launch_btn);
+        hbox.append(&edit_btn);
         hbox.append(&delete_btn);
 
         row.set_child(Some(&hbox));
@@ -236,6 +245,30 @@ impl MainWindow {
 
         {
             let app_entry = app.clone();
+            let parent_window = self.window.clone();
+            let toast_overlay = self.toast_overlay.clone();
+            edit_btn.connect_clicked(move |_| {
+                let toast_overlay = toast_overlay.clone();
+                CreateDialog::show_edit(&parent_window, app_entry.clone(), move |result| {
+                    match result {
+                        Ok(entry) => {
+                            toast_overlay
+                                .add_toast(Toast::new(&format!("Updated {}", entry.name)));
+                            if let Some(app) = gio::Application::default() {
+                                app.activate_action("refresh", None);
+                            }
+                        }
+                        Err(e) => {
+                            toast_overlay
+                                .add_toast(Toast::new(&format!("Could not update app: {e}")));
+                        }
+                    }
+                });
+            });
+        }
+
+        {
+            let app_entry = app.clone();
             // We need a weak-ish way to call reload: store window handle via clone of list parent
             // Use glib::clone with a clone of the MainWindow pieces
             let list = self.list.clone();
@@ -251,9 +284,17 @@ impl MainWindow {
                 let apps_store = Rc::clone(&apps_store);
                 let toast_overlay = toast_overlay.clone();
 
+                let delete_body = match app_entry.profile_mode {
+                    ProfileMode::Shared => {
+                        "This deletes the launcher and icon. Your main browser profile and extensions are not modified."
+                    }
+                    ProfileMode::Isolated | ProfileMode::IsolatedWithExtensions => {
+                        "This deletes the launcher, icon, and private browser profile. You will need to sign in again if you recreate it."
+                    }
+                };
                 let dialog = libadwaita::AlertDialog::builder()
                     .heading(format!("Remove {}?", app_entry.name))
-                    .body("This deletes the launcher, icon, and isolated browser profile. You will need to sign in again if you recreate it.")
+                    .body(delete_body)
                     .build();
                 dialog.add_response("cancel", "Cancel");
                 dialog.add_response("delete", "Remove");

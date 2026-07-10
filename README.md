@@ -12,7 +12,7 @@ Anchor is a free, open-source **web app manager** for Linux. Give it a name and 
 Built for people on **Zorin OS**, Ubuntu, and GNOME who want the “install this site as an app” experience without fighting browser menus or distro-only tooling.
 
 <p align="center">
-  <em>Native GTK app · Isolated profiles · Wayland-aware dock icons · Multi-browser</em>
+  <em>Native GTK app · Profile modes · Wayland-aware dock icons · Multi-browser</em>
 </p>
 
 ---
@@ -23,7 +23,7 @@ Built for people on **Zorin OS**, Ubuntu, and GNOME who want the “install this
 |---|---|
 | Sites that feel like apps | Frameless Chromium app windows / minimal Firefox profiles |
 | Your own icons on the dock | Launchers + Wayland `StartupWMClass` matching that actually works |
-| Independence from the browser window | Per-app profiles—close Brave, keep YouTube open (and the reverse) |
+| Independence from the browser window | Per-app isolated profiles—or share the browser profile for extensions like 1Password |
 | Choice of browser | Brave, Firefox, Firefox Developer Edition, Chrome, Chromium, Edge, Vivaldi, Flatpaks, plus **system default** |
 | Something simple and free | MIT-licensed, no account, no telemetry, no Electron wrapper |
 
@@ -46,8 +46,11 @@ Web tools are where a huge amount of real work happens—email, docs, chat, dash
 - **Auto-fetch favicons** (HTML icons → `/favicon.ico` → Google favicon API)
 - **Custom icon upload** when a site has no usable favicon
 - **Browser picker**, including **Default browser** and **Firefox Developer Edition**
-- **Isolated profiles** per app (Chromium `--user-data-dir`, Firefox dedicated profile + `--no-remote`)
-- **List, launch, and remove** managed apps from one window
+- **Profile modes** per app:
+  - **Isolated** (default) — private profile, independent of the main browser
+  - **Shared** — use the browser’s default profile so logins and extensions (e.g. 1Password) work
+  - **Isolated with extensions** — private profile seeded with extensions from the selected browser
+- **List, launch, edit, and remove** managed apps from one window
 - **Automatic repair** of dock-matching metadata on startup (important on Wayland)
 
 ---
@@ -60,7 +63,7 @@ Respectful comparison—different tools optimize for different environments.
 |---|---|---|---|---|
 | **UI** | Native GTK4 / libadwaita GUI | TUI menu inside Omarchy | GTK GUI | Inside the browser |
 | **Best fit** | Zorin / Ubuntu / GNOME stock desktops | Full Omarchy (Hyprland) setup | Linux Mint / Cinnamon (runs elsewhere too) | Single browser ecosystem |
-| **Isolation** | Per-app profile by default | Typically shares browser profile | Optional isolated profiles | PWA / app profile |
+| **Isolation** | Isolated by default; optional shared or isolated+extensions | Typically shares browser profile | Optional isolated profiles | PWA / app profile |
 | **Dock icons on Wayland** | Sets `StartupWMClass` to Chromium’s real `app_id` | Window rules / Hyprland-centric | Can need manual class fixes | Often good for official PWAs |
 | **Browser choice** | Yes (default + many browsers) | Usually Chromium-family default | Yes | That browser only |
 | **Electron bloat** | No—uses the browser you already have | No | No | No |
@@ -102,11 +105,17 @@ Full requirements, PATH setup, upgrade from the old name, uninstall, and trouble
 2. Click **+** (Add Web App)
 3. Enter **Name** and **URL**
 4. Choose a **Browser** (or Default browser)
-5. **Fetch icon** or **Choose image…**
-6. Click **Create**
-7. Launch from Super search, the app menu, or the ▶ button in Anchor
+5. Choose a **Profile** mode (Isolated, Shared, or Isolated with extensions)
+6. **Fetch icon** or **Choose image…**
+7. Click **Create**
+8. Launch from Super search, the app menu, or the ▶ button in Anchor
+9. Use the pencil button on any row to **edit** name, URL, browser, profile mode, or icon (the app id stays the same)
 
-**Tip:** Isolated apps start signed out. Sign in once inside each web app.
+**Tips**
+
+- **Isolated** apps start signed out. Sign in once inside each web app.
+- Use **Shared browser profile** when you need password managers (e.g. 1Password) or existing logins. Chromium-family browsers work best for this mode.
+- **Isolated with extensions** keeps a private session but copies extensions from the selected browser when the app is created (best-effort).
 
 ---
 
@@ -114,8 +123,8 @@ Full requirements, PATH setup, upgrade from the old name, uninstall, and trouble
 
 | Browser family | Launch style | Profile location |
 |---|---|---|
-| Chromium / Chrome / Brave / Edge / Vivaldi | `--app=URL` + isolated `--user-data-dir` | `~/.local/share/anchor/profiles/<id>/` |
-| Firefox / Developer Edition / LibreWolf | Dedicated profile + `--no-remote` | `~/.local/share/anchor/firefox/<id>/` |
+| Chromium / Chrome / Brave / Edge / Vivaldi | `--app=URL`; isolated adds `--user-data-dir` | Isolated: `~/.local/share/anchor/profiles/<id>/` · Shared: browser default |
+| Firefox / Developer Edition / LibreWolf | Isolated: dedicated profile + `--no-remote` · Shared: `--new-instance` | Isolated: `~/.local/share/anchor/firefox/<id>/` · Shared: Firefox default |
 
 Launchers: `~/.local/share/applications/webapp-*.desktop`  
 On Wayland, Chromium ignores `--class` and uses a URL-based window id (e.g. `brave-www.youtube.com__-Default`). Anchor writes that into `StartupWMClass` so the dock shows the right icon.

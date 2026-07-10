@@ -1,18 +1,32 @@
-//! XDG paths used by Zorin Web App Manager.
+//! XDG paths used by Anchor.
 
 use std::fs;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
-pub const APP_ID: &str = "com.voxelnorth.ZorinWebAppManager";
-pub const MANAGER_TAG: &str = "zorin-webapp-manager";
+pub const APP_ID: &str = "com.voxelnorth.Anchor";
+/// Tag written into new desktop files as `X-WebApp-Manager`.
+pub const MANAGER_TAG: &str = "anchor";
+/// Previous product id — still recognized when listing/repairing apps.
+pub const LEGACY_MANAGER_TAG: &str = "zorin-webapp-manager";
 pub const DESKTOP_PREFIX: &str = "webapp-";
 
-/// `~/.local/share/zorin-webapp-manager`
+pub fn is_manager_tag(tag: &str) -> bool {
+    tag == MANAGER_TAG || tag == LEGACY_MANAGER_TAG
+}
+
+/// `~/.local/share/anchor` (primary data directory for new installs).
 pub fn data_dir() -> Result<PathBuf> {
     let base = dirs::data_local_dir().context("could not resolve XDG data directory")?;
     Ok(base.join(MANAGER_TAG))
+}
+
+/// Legacy data directory from the v1 “Zorin Web App Manager” name.
+#[allow(dead_code)] // reserved for future profile/icon path migration
+pub fn legacy_data_dir() -> Result<PathBuf> {
+    let base = dirs::data_local_dir().context("could not resolve XDG data directory")?;
+    Ok(base.join(LEGACY_MANAGER_TAG))
 }
 
 pub fn icons_dir() -> Result<PathBuf> {

@@ -40,6 +40,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "anchor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "glib",
+ "gtk4",
+ "image",
+ "libadwaita",
+ "rand 0.8.6",
+ "reqwest",
+ "scraper",
+ "thiserror 1.0.69",
+ "url",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3218,23 +3235,6 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
-
-[[package]]
-name = "zorin-webapp-manager"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dirs",
- "glib",
- "gtk4",
- "image",
- "libadwaita",
- "rand 0.8.6",
- "reqwest",
- "scraper",
- "thiserror 1.0.69",
- "url",
-]
 
 [[package]]
 name = "zune-core"

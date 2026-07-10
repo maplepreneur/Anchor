@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Anchor
+GenericName=Web App Manager
+Comment=Turn any website into a real desktop app
+Exec=anchor
+Icon=web-browser
+Terminal=false
+Categories=Utility;Network;
+StartupNotify=true
+Keywords=web;app;pwa;browser;anchor;zorin;ubuntu;
+StartupWMClass=com.voxelnorth.Anchor

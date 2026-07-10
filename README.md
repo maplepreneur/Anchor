@@ -1,98 +1,164 @@
-# Zorin Web App Manager
+# Anchor
 
-A native GTK4 / libadwaita app for **Zorin OS** that turns any website into a launchable desktop application — similar in spirit to Omarchy’s web apps, with **isolated browser profiles** so each web app has its own dock icon and process lifetime.
+**Turn any website into a real desktop app.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-brightgreen.svg)](#install)
+[![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
+[![UI: GTK4](https://img.shields.io/badge/UI-GTK4%20%2F%20libadwaita-purple.svg)](https://www.gtk.org/)
+
+Anchor is a free, open-source **web app manager** for Linux. Give it a name and a URL—it fetches an icon, launches the site in its own window, and pins cleanly to your dock with a separate process from your everyday browser.
+
+Built for people on **Zorin OS**, Ubuntu, and GNOME who want the “install this site as an app” experience without fighting browser menus or distro-only tooling.
+
+<p align="center">
+  <em>Native GTK app · Isolated profiles · Wayland-aware dock icons · Multi-browser</em>
+</p>
+
+---
+
+## Why Anchor?
+
+| You want… | Anchor gives you… |
+|---|---|
+| Sites that feel like apps | Frameless Chromium app windows / minimal Firefox profiles |
+| Your own icons on the dock | Launchers + Wayland `StartupWMClass` matching that actually works |
+| Independence from the browser window | Per-app profiles—close Brave, keep YouTube open (and the reverse) |
+| Choice of browser | Brave, Firefox, Firefox Developer Edition, Chrome, Chromium, Edge, Vivaldi, Flatpaks, plus **system default** |
+| Something simple and free | MIT-licensed, no account, no telemetry, no Electron wrapper |
+
+Web tools are where a huge amount of real work happens—email, docs, chat, dashboards, video. Anchor makes those sites first-class citizens on a Linux desktop.
+
+---
+
+## Who it’s for
+
+- **Zorin OS / Ubuntu / GNOME** users who want a polished GUI, not a shell script
+- People coming from **Omarchy**-style web apps who want the same idea on a stock desktop
+- Anyone tired of **browser PWAs** that group under Chrome/Brave or break after updates
+- Users who tried **Linux Mint WebApp Manager** and want a lightweight, modern alternative focused on isolation and dock icons
+
+---
 
 ## Features
 
-- Enter a **name** and **URL** to create a web app
-- **Auto-fetch favicon** as the desktop icon (HTML icons → `/favicon.ico` → Google favicon API)
-- If favicon fetch fails, **choose a local image**
-- Pick which **browser** launches the app (Brave, Firefox, Chrome, Chromium, Edge, Vivaldi, Flatpaks, …)
-- Apps appear in the Zorin app menu / Super search
-- **Isolated profiles**: closing your main browser leaves web apps open, and vice versa
-- List, launch, and remove managed web apps
+- **Create** web apps with name + URL
+- **Auto-fetch favicons** (HTML icons → `/favicon.ico` → Google favicon API)
+- **Custom icon upload** when a site has no usable favicon
+- **Browser picker**, including **Default browser** and **Firefox Developer Edition**
+- **Isolated profiles** per app (Chromium `--user-data-dir`, Firefox dedicated profile + `--no-remote`)
+- **List, launch, and remove** managed apps from one window
+- **Automatic repair** of dock-matching metadata on startup (important on Wayland)
 
-## How isolation works
+---
 
-| Browser family | Launch mode | Profile |
-|---|---|---|
-| Chromium / Chrome / Brave / Edge / Vivaldi | `--app=URL` + `--user-data-dir` | `~/.local/share/zorin-webapp-manager/profiles/<code>/` |
-| Firefox / LibreWolf / similar | dedicated `--profile` + `--no-remote` + `--class` | `~/.local/share/zorin-webapp-manager/firefox/<code>/` |
+## How Anchor compares
 
-Desktop files live in `~/.local/share/applications/webapp-*.desktop`.
+Respectful comparison—different tools optimize for different environments.
 
-### Dock icons (Wayland)
+| | **Anchor** | **Omarchy web apps** | **Linux Mint WebApp Manager** | **Chrome / Brave “Install app” (PWA)** |
+|---|---|---|---|---|
+| **UI** | Native GTK4 / libadwaita GUI | TUI menu inside Omarchy | GTK GUI | Inside the browser |
+| **Best fit** | Zorin / Ubuntu / GNOME stock desktops | Full Omarchy (Hyprland) setup | Linux Mint / Cinnamon (runs elsewhere too) | Single browser ecosystem |
+| **Isolation** | Per-app profile by default | Typically shares browser profile | Optional isolated profiles | PWA / app profile |
+| **Dock icons on Wayland** | Sets `StartupWMClass` to Chromium’s real `app_id` | Window rules / Hyprland-centric | Can need manual class fixes | Often good for official PWAs |
+| **Browser choice** | Yes (default + many browsers) | Usually Chromium-family default | Yes | That browser only |
+| **Electron bloat** | No—uses the browser you already have | No | No | No |
+| **Cost / license** | Free · MIT | Free · part of Omarchy | Free · Mint project | Free |
 
-On **Wayland**, Chromium-family browsers **ignore `--class`** and set the window `app_id` from the site URL, e.g.:
+**In short:** Omarchy is a full opinionated desktop; Mint’s tool is the classic Linux GUI for web apps; browser PWAs are convenient but browser-bound. **Anchor** is a focused, modern manager you can drop onto Zorin or Ubuntu and share as a standalone open-source project.
 
-`brave-www.youtube.com__-Default`
+---
 
-The manager sets `StartupWMClass` to that value so GNOME/Zorin can match the open window to the launcher and show the correct dock icon. Icons are also installed into the hicolor theme under that class name.
+## Screenshots
 
-Existing apps are repaired automatically on startup. After updating, fully close a web app and reopen it (unpin/re-pin if an old Brave pin remains).
+Screenshots will live in [`docs/screenshots/`](docs/screenshots/).  
+*(Add PNGs here when publishing marketing materials.)*
 
-**Note:** Isolated profiles start signed out. Sign in once inside each web app (or use a non-isolated approach later if you prefer shared cookies).
+---
 
-## Build requirements
+## Install
 
-```bash
-# Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# GTK4 / libadwaita development packages (Ubuntu / Zorin)
-sudo apt install build-essential pkg-config \
-  libgtk-4-dev libadwaita-1-dev libglib2.0-dev
-```
-
-## Build & run
+**TL;DR**
 
 ```bash
+git clone https://github.com/maplepreneur/Anchor.git
+cd Anchor
+sudo apt install build-essential pkg-config libgtk-4-dev libadwaita-1-dev libglib2.0-dev
 cargo build --release
-./target/release/zorin-webapp-manager
+cp target/release/anchor ~/.local/bin/
+cp resources/com.voxelnorth.Anchor.desktop ~/.local/share/applications/
 ```
 
-Or during development:
+Full requirements, PATH setup, upgrade from the old name, uninstall, and troubleshooting:
 
-```bash
-cargo run
-```
+**→ [INSTALL.md](INSTALL.md)**
 
-## Install launcher (optional)
-
-```bash
-cargo build --release
-mkdir -p ~/.local/share/applications ~/.local/bin
-cp target/release/zorin-webapp-manager ~/.local/bin/
-# Edit Exec= if you install elsewhere
-cp resources/com.voxelnorth.ZorinWebAppManager.desktop \
-  ~/.local/share/applications/
-update-desktop-database ~/.local/share/applications 2>/dev/null || true
-```
-
-Then open **Web App Manager** from the Zorin app menu.
+---
 
 ## Usage
 
-1. Click **+** (Add Web App)
-2. Enter **Name** and **URL**
-3. Choose a **Browser**
-4. Click **Fetch icon** (or **Choose image…** if fetch fails)
-5. Click **Create**
-6. Launch from Super search, the app menu, or the **▶** button in the list
+1. Open **Anchor**
+2. Click **+** (Add Web App)
+3. Enter **Name** and **URL**
+4. Choose a **Browser** (or Default browser)
+5. **Fetch icon** or **Choose image…**
+6. Click **Create**
+7. Launch from Super search, the app menu, or the ▶ button in Anchor
+
+**Tip:** Isolated apps start signed out. Sign in once inside each web app.
+
+---
+
+## How it works (brief)
+
+| Browser family | Launch style | Profile location |
+|---|---|---|
+| Chromium / Chrome / Brave / Edge / Vivaldi | `--app=URL` + isolated `--user-data-dir` | `~/.local/share/anchor/profiles/<id>/` |
+| Firefox / Developer Edition / LibreWolf | Dedicated profile + `--no-remote` | `~/.local/share/anchor/firefox/<id>/` |
+
+Launchers: `~/.local/share/applications/webapp-*.desktop`  
+On Wayland, Chromium ignores `--class` and uses a URL-based window id (e.g. `brave-www.youtube.com__-Default`). Anchor writes that into `StartupWMClass` so the dock shows the right icon.
+
+---
 
 ## Project layout
 
-```
+```text
 src/
-  main.rs          # Application entry
-  browser.rs       # Detect browsers + build Exec lines
-  desktop.rs       # .desktop file I/O
-  favicon.rs       # Favicon download / normalize
-  paths.rs         # XDG paths
-  webapp.rs        # Create / list / delete
-  ui/              # GTK4 + libadwaita UI
+  main.rs           # Application entry
+  browser.rs        # Detect browsers + launch commands
+  desktop.rs        # .desktop file I/O
+  favicon.rs        # Icon download / normalize
+  paths.rs          # XDG paths
+  webapp.rs         # Create / list / delete / repair
+  ui/               # GTK4 + libadwaita UI
+resources/          # Desktop launcher for Anchor itself
+INSTALL.md          # Detailed setup
 ```
+
+---
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+```bash
+cargo test
+cargo build --release
+```
+
+---
+
+## Credits
+
+- Inspired by the simplicity of **Omarchy** web apps and the completeness of **Linux Mint WebApp Manager**
+- Built with **Rust**, **GTK4**, and **libadwaita**
+
+---
 
 ## License
 
-MIT
+[MIT](LICENSE) © Voxel North
+
+**Free to use. Free to share. Free to improve.**

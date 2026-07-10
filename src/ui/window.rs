@@ -160,8 +160,12 @@ impl MainWindow {
         let row = ListBoxRow::new();
         row.set_activatable(false);
 
-        let icon = if !app.icon.is_empty() && std::path::Path::new(&app.icon).exists() {
-            gtk::Image::from_file(&app.icon)
+        let icon_path = webapp::resolve_icon_file(&app.codename, &app.icon);
+        let icon = if icon_path.is_file() {
+            gtk::Image::from_file(&icon_path)
+        } else if !app.icon.is_empty() && !app.icon.contains('/') {
+            // Theme name fallback (hicolor) if PNG path missing
+            gtk::Image::from_icon_name(&app.icon)
         } else {
             gtk::Image::from_icon_name("web-browser-symbolic")
         };

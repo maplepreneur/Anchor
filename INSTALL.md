@@ -164,9 +164,11 @@ If you need logins or browser extensions (for example **1Password**) without sig
 
 Older Shared apps launched against the browser’s default profile. Chromium uses one process per profile, so the web app and browser shared a dock icon (same bug as Zorin Web App Manager).
 
-**Current behavior:** Shared apps always get their own `--user-data-dir` / Firefox profile. Anchor sets `StartupWMClass` to Chromium’s real Wayland `app_id` and installs a matching theme icon (see also [It’s FOSS on StartupWMClass](https://itsfoss.com/ubuntu-app-icon-missing/)).
+**Current behavior:** Shared apps always get their own `--user-data-dir` / Firefox profile. Anchor sets `StartupWMClass` to Chromium’s real Wayland `app_id`, writes an absolute PNG path in `Icon=` (so the list UI shows favicons immediately), and also installs a themed icon named after the window class for the dock.
 
-After upgrading, open **Anchor once** so existing Shared launchers are repaired. Fully quit the web app and browser, then relaunch the web app. Unpin any old pin that still points at the browser if needed.
+After upgrading, open **Anchor once** so existing Shared launchers are repaired (icons rewritten to absolute paths; Firefox Shared re-seeds extensions if the XPI folder was empty). Fully quit the web app and browser, then relaunch the web app. Unpin any old pin that still points at the browser if needed.
+
+**Firefox Developer Edition note:** profiles live under `~/.config/mozilla/firefox/` (not only `~/.mozilla/firefox/`). Shared mode picks the real Dev Edition profile (`dev-edition-default` / `[Install]` default), not an empty stub.
 
 ### No browsers listed
 

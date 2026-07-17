@@ -21,7 +21,7 @@ Built for people on **Zorin OS**, Ubuntu, and GNOME who want the “install this
 
 | You want… | Anchor gives you… |
 |---|---|
-| Sites that feel like apps | Frameless Chromium app windows / minimal Firefox profiles |
+| Sites that feel like apps | Frameless Chromium app windows / frameless Firefox profiles (no title bar) |
 | Your own icons on the dock | Launchers + Wayland `StartupWMClass` matching that actually works |
 | Independence from the browser window | Per-app isolated profiles—or share the browser profile for extensions like 1Password |
 | Choice of browser | Brave, Firefox, Firefox Developer Edition, Chrome, Chromium, Edge, Vivaldi, Flatpaks, plus **system default** |
@@ -42,7 +42,7 @@ Web tools are where a huge amount of real work happens—email, docs, chat, dash
 
 ## Features
 
-- **Create** web apps with name + URL
+- **Create / edit** web apps with name + URL, profile mode, and **show/hide title bar** (Firefox frameless by default)
 - **Auto-fetch favicons** (HTML icons → `/favicon.ico` → Google favicon API)
 - **Custom icon upload** when a site has no usable favicon
 - **Browser picker**, including **Default browser** and **Firefox Developer Edition**

@@ -21,6 +21,10 @@ pub struct DesktopEntry {
     pub exec: String,
     pub startup_wm_class: String,
     pub profile_mode: ProfileMode,
+    /// When false (default), Firefox web apps hide the window title bar (frameless).
+    /// Chromium `--app` windows always use the browser’s app chrome; this flag is stored
+    /// for consistency and future use.
+    pub show_title_bar: bool,
 }
 
 /// Escape a value for a desktop-entry key (no newlines).
@@ -39,6 +43,7 @@ pub fn write_desktop_file(
     exec: &str,
     window_class: &str,
     profile_mode: ProfileMode,
+    show_title_bar: bool,
 ) -> Result<PathBuf> {
     let path = paths::desktop_path(codename)?;
     let isolated = if profile_mode.is_isolated() {
@@ -46,6 +51,7 @@ pub fn write_desktop_file(
     } else {
         "false"
     };
+    let show_title = if show_title_bar { "true" } else { "false" };
     let content = format!(
         r#"[Desktop Entry]
 Version=1.0
@@ -63,6 +69,7 @@ X-WebApp-URL={url}
 X-WebApp-Browser={browser}
 X-WebApp-Isolated={isolated}
 X-WebApp-ProfileMode={profile_mode}
+X-WebApp-ShowTitleBar={show_title}
 "#,
         name = escape_value(name),
         exec = exec, // Exec is already carefully built
@@ -73,6 +80,7 @@ X-WebApp-ProfileMode={profile_mode}
         browser = escape_value(browser_name),
         isolated = isolated,
         profile_mode = profile_mode.as_desktop_value(),
+        show_title = show_title,
     );
 
     if let Some(parent) = path.parent() {
@@ -107,6 +115,7 @@ fn parse_desktop_file(path: &Path) -> Result<DesktopEntry> {
     let mut startup_wm_class = None;
     let mut profile_mode_key = None;
     let mut isolated_key = None;
+    let mut show_title_bar_key = None;
 
     for line in text.lines() {
         let line = line.trim();
@@ -124,6 +133,7 @@ fn parse_desktop_file(path: &Path) -> Result<DesktopEntry> {
                 "X-WebApp-Manager" => manager = Some(v.to_string()),
                 "X-WebApp-ProfileMode" => profile_mode_key = Some(v.to_string()),
                 "X-WebApp-Isolated" => isolated_key = Some(v.to_string()),
+                "X-WebApp-ShowTitleBar" => show_title_bar_key = Some(v.to_string()),
                 _ => {}
             }
         }
@@ -145,6 +155,12 @@ fn parse_desktop_file(path: &Path) -> Result<DesktopEntry> {
         ProfileMode::Isolated
     };
 
+    // Default: hide title bar (frameless). Only "true" enables the native bar.
+    let show_title_bar = show_title_bar_key
+        .as_deref()
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+
     let file_name = path
         .file_name()
         .and_then(|s| s.to_str())
@@ -165,6 +181,7 @@ fn parse_desktop_file(path: &Path) -> Result<DesktopEntry> {
         exec: exec.unwrap_or_default(),
         startup_wm_class: startup_wm_class.unwrap_or_default(),
         profile_mode,
+        show_title_bar,
     })
 }
 
@@ -234,6 +251,7 @@ X-WebApp-URL=https://example.com
 X-WebApp-Browser=Brave
 X-WebApp-Isolated=true
 X-WebApp-ProfileMode=isolated
+X-WebApp-ShowTitleBar=false
 "#
         );
         // Also verify legacy tag is accepted
@@ -255,6 +273,7 @@ X-WebApp-ProfileMode=isolated
         assert!(entry.exec.contains("--app="));
         assert_eq!(entry.startup_wm_class, "WebApp-TestApp9999");
         assert_eq!(entry.profile_mode, ProfileMode::Isolated);
+        assert!(!entry.show_title_bar);
 
         // Shared mode + legacy Isolated=false without ProfileMode
         let shared_path = apps.join("webapp-Shared9999.desktop");
@@ -265,12 +284,26 @@ X-WebApp-ProfileMode=isolated
             .replace(
                 "X-WebApp-ProfileMode=isolated",
                 "X-WebApp-ProfileMode=shared",
+            )
+            .replace(
+                "X-WebApp-ShowTitleBar=false",
+                "X-WebApp-ShowTitleBar=true",
             );
         fs::write(&shared_path, shared).unwrap();
-        assert_eq!(
-            parse_desktop_file(&shared_path).unwrap().profile_mode,
-            ProfileMode::Shared
-        );
+        let shared_entry = parse_desktop_file(&shared_path).unwrap();
+        assert_eq!(shared_entry.profile_mode, ProfileMode::Shared);
+        assert!(shared_entry.show_title_bar);
+
+        // Missing ShowTitleBar key defaults to false (frameless).
+        let no_title_key = apps.join("webapp-NoTitleKey9999.desktop");
+        let mut no_title_body = content.replace("TestApp9999", "NoTitleKey9999");
+        no_title_body = no_title_body
+            .lines()
+            .filter(|l| !l.starts_with("X-WebApp-ShowTitleBar="))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(&no_title_key, no_title_body).unwrap();
+        assert!(!parse_desktop_file(&no_title_key).unwrap().show_title_bar);
 
         let legacy_shared = apps.join("webapp-LegacyShared9999.desktop");
         let mut legacy_shared_body = content

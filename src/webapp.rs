@@ -22,6 +22,8 @@ pub struct CreateRequest {
     pub icon_source: IconSource,
     /// Isolated or shared browser profile.
     pub profile_mode: ProfileMode,
+    /// When false (default), hide the window title bar for a frameless app look.
+    pub show_title_bar: bool,
 }
 
 /// Update an existing web app while keeping its codename (launcher id).
@@ -33,6 +35,8 @@ pub struct EditRequest {
     pub browser: Browser,
     pub icon_source: IconSource,
     pub profile_mode: ProfileMode,
+    /// When false (default), hide the window title bar for a frameless app look.
+    pub show_title_bar: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -107,7 +111,7 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
     let icon_path = resolve_icon_file(&app.codename, &app.icon);
 
     // Ensure private profile exists. Re-seed Shared apps that never got extensions
-    // (wrong Firefox profile root, empty stub profile, or pre-fix launchers).
+    // or site session data (IndexedDB/localStorage) — e.g. WhatsApp Web logins.
     let seed_if_needed = app.profile_mode.seeds_from_browser()
         && match browser.family {
             BrowserFamily::Chromium => {
@@ -117,10 +121,24 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
             }
             BrowserFamily::Firefox => {
                 let p = paths::firefox_profile_path(&app.codename)?;
-                !firefox_profile_has_extensions(&p)
+                let missing_ext = !firefox_profile_has_extensions(&p);
+                let missing_site = browser::firefox_default_profile_dir(&browser)
+                    .map(|src| {
+                        source_has_origin_storage(&src, &app.url)
+                            && !firefox_profile_has_site_session(&p, &app.url)
+                    })
+                    .unwrap_or(false);
+                missing_ext || missing_site
             }
         };
-    let _ = prepare_private_profile(&browser, &app.codename, app.profile_mode, seed_if_needed);
+    let _ = prepare_private_profile(
+        &browser,
+        &app.codename,
+        app.profile_mode,
+        seed_if_needed,
+        &app.url,
+        app.show_title_bar,
+    );
 
     let new_exec = browser::build_exec(
         &browser,
@@ -138,11 +156,15 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
     let icon_mismatch = !current_desktop
         .lines()
         .any(|l| l.trim() == expected_icon_line);
+    let title_bar_key_missing = !current_desktop
+        .lines()
+        .any(|l| l.trim().starts_with("X-WebApp-ShowTitleBar="));
 
     let needs_fix = app.startup_wm_class != expected_class
         || app.exec != new_exec
         || !app.exec.contains(&expected_class)
         || icon_mismatch
+        || title_bar_key_missing
         || (browser.family == BrowserFamily::Chromium && !app.exec.contains("--user-data-dir="))
         || (browser.family == BrowserFamily::Firefox
             && app.profile_mode.seeds_from_browser()
@@ -154,8 +176,19 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
         let _ = install_themed_icons(&icon_path, &format!("webapp-{}", app.codename));
     }
 
+    // Re-apply Firefox chrome for the stored title-bar preference even when the
+    // .desktop file is already correct (Shared seed / runtime may rewrite prefs).
+    let mut chrome_fixed = false;
+    if browser.family == BrowserFamily::Firefox {
+        if let Ok(profile) = paths::firefox_profile_path(&app.codename) {
+            if profile.is_dir() {
+                chrome_fixed = ensure_firefox_app_chrome(&profile, app.show_title_bar)?;
+            }
+        }
+    }
+
     if !needs_fix {
-        return Ok(false);
+        return Ok(chrome_fixed);
     }
 
     desktop::write_desktop_file(
@@ -167,6 +200,7 @@ fn repair_webapp(app: &DesktopEntry, browsers: &[Browser]) -> Result<bool> {
         &new_exec,
         &expected_class,
         app.profile_mode,
+        app.show_title_bar,
     )?;
     Ok(true)
 }
@@ -209,6 +243,133 @@ fn firefox_profile_has_extensions(profile: &Path) -> bool {
                     return true;
                 }
             }
+        }
+    }
+    false
+}
+
+/// Host from a page URL (lowercase), if parseable.
+fn host_from_url(page_url: &str) -> Option<String> {
+    url::Url::parse(page_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()))
+}
+
+/// Last two labels of a host (`web.whatsapp.com` → `whatsapp.com`).
+fn domain_suffix(host: &str) -> Option<&str> {
+    let mut parts = host.rsplitn(3, '.');
+    let tld = parts.next()?;
+    let sld = parts.next()?;
+    if tld.is_empty() || sld.is_empty() {
+        return None;
+    }
+    // host is borrowed; return a slice into it
+    let start = host.len().checked_sub(sld.len() + 1 + tld.len())?;
+    Some(&host[start..])
+}
+
+/// Whether a Firefox `storage/default` directory name belongs to `host` / its domain.
+///
+/// Names look like `https+++web.whatsapp.com` or
+/// `https+++flows.whatsapp.net^partitionKey=%28https%2Cwhatsapp.com%29`.
+fn origin_matches_host(dir_name: &str, host: &str) -> bool {
+    let name = dir_name.to_ascii_lowercase();
+    if name.starts_with("moz-extension") {
+        return false;
+    }
+    if name.contains(host) {
+        return true;
+    }
+    if let Some(suffix) = domain_suffix(host) {
+        // Match sibling subdomains (accounts.google.com for mail.google.com).
+        if name.contains(suffix) {
+            return true;
+        }
+    }
+    false
+}
+
+/// True if the browser profile has origin storage for this page URL.
+fn source_has_origin_storage(source_profile: &Path, page_url: &str) -> bool {
+    let Some(host) = host_from_url(page_url) else {
+        return false;
+    };
+    let storage = source_profile.join("storage/default");
+    let Ok(rd) = fs::read_dir(&storage) else {
+        return false;
+    };
+    rd.flatten().any(|e| {
+        let name = e.file_name();
+        origin_matches_host(&name.to_string_lossy(), &host) && e.path().is_dir()
+    })
+}
+
+/// True if the Anchor profile already has non-stub site storage for the page URL.
+///
+/// Empty Firefox IndexedDB shells are typically ~48 KiB; real WhatsApp sessions are multi-MB.
+fn firefox_profile_has_site_session(profile: &Path, page_url: &str) -> bool {
+    let Some(host) = host_from_url(page_url) else {
+        return true;
+    };
+    let storage = profile.join("storage/default");
+    let Ok(rd) = fs::read_dir(&storage) else {
+        return false;
+    };
+    for entry in rd.flatten() {
+        let name = entry.file_name();
+        if !origin_matches_host(&name.to_string_lossy(), &host) {
+            continue;
+        }
+        if origin_has_substantial_data(&entry.path()) {
+            return true;
+        }
+    }
+    false
+}
+
+fn origin_has_substantial_data(origin_dir: &Path) -> bool {
+    // Anything above an empty SQLite shell (~48–64 KiB) counts as real session data.
+    const MIN_BYTES: u64 = 100 * 1024;
+    for sub in ["idb", "ls", "cache"] {
+        let dir = origin_dir.join(sub);
+        if !dir.is_dir() {
+            continue;
+        }
+        if let Ok(rd) = fs::read_dir(&dir) {
+            for entry in rd.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Ok(meta) = entry.metadata() {
+                        if meta.len() >= MIN_BYTES {
+                            return true;
+                        }
+                    }
+                } else if path.is_dir() {
+                    // cache/morgue/… blobs
+                    if dir_has_file_at_least(&path, MIN_BYTES) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn dir_has_file_at_least(dir: &Path, min_bytes: u64) -> bool {
+    let Ok(rd) = fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.len() >= min_bytes {
+                    return true;
+                }
+            }
+        } else if path.is_dir() && dir_has_file_at_least(&path, min_bytes) {
+            return true;
         }
     }
     false
@@ -260,7 +421,14 @@ pub fn create_webapp(req: CreateRequest) -> Result<DesktopEntry> {
     }
 
     // Both modes use a private profile dir; Shared seeds from the browser.
-    prepare_private_profile(&req.browser, &codename, req.profile_mode, true)?;
+    prepare_private_profile(
+        &req.browser,
+        &codename,
+        req.profile_mode,
+        true,
+        &url,
+        req.show_title_bar,
+    )?;
 
     write_launcher(
         &codename,
@@ -269,6 +437,7 @@ pub fn create_webapp(req: CreateRequest) -> Result<DesktopEntry> {
         &req.browser,
         &icon_dest,
         req.profile_mode,
+        req.show_title_bar,
     )
 }
 
@@ -331,7 +500,15 @@ pub fn update_webapp(req: EditRequest) -> Result<DesktopEntry> {
     // Seed when entering Shared, or when Shared + browser changed (refresh extensions).
     let force_seed = new_mode.seeds_from_browser()
         && (old_mode != new_mode || req.existing.browser != req.browser.name);
-    prepare_private_profile(&req.browser, &codename, new_mode, force_seed)?;
+    // Always re-apply chrome when title-bar preference or browser/profile changed.
+    prepare_private_profile(
+        &req.browser,
+        &codename,
+        new_mode,
+        force_seed,
+        &url,
+        req.show_title_bar,
+    )?;
 
     write_launcher(
         &codename,
@@ -340,6 +517,7 @@ pub fn update_webapp(req: EditRequest) -> Result<DesktopEntry> {
         &req.browser,
         &icon_dest,
         new_mode,
+        req.show_title_bar,
     )
 }
 
@@ -373,6 +551,8 @@ fn prepare_private_profile(
     codename: &str,
     mode: ProfileMode,
     allow_seed: bool,
+    page_url: &str,
+    show_title_bar: bool,
 ) -> Result<()> {
     match browser.family {
         BrowserFamily::Chromium => {
@@ -385,13 +565,15 @@ fn prepare_private_profile(
         BrowserFamily::Firefox => {
             let profile = paths::firefox_profile_path(codename)?;
             if !profile.exists() {
-                seed_firefox_profile(&profile)?;
+                seed_firefox_profile(&profile, show_title_bar)?;
             } else {
                 fs::create_dir_all(&profile)?;
             }
             if allow_seed && mode.seeds_from_browser() {
-                let _ = seed_firefox_from_browser(browser, &profile);
+                let _ = seed_firefox_from_browser(browser, &profile, page_url, show_title_bar);
             }
+            // Always re-apply app chrome after seed for the chosen title-bar mode.
+            let _ = ensure_firefox_app_chrome(&profile, show_title_bar);
         }
     }
     Ok(())
@@ -430,6 +612,7 @@ fn write_launcher(
     browser: &Browser,
     icon_dest: &Path,
     profile_mode: ProfileMode,
+    show_title_bar: bool,
 ) -> Result<DesktopEntry> {
     let window_class = browser::window_class(browser, codename, url);
     let exec = browser::build_exec(browser, codename, url, icon_dest, profile_mode)?;
@@ -449,6 +632,7 @@ fn write_launcher(
         &exec,
         &window_class,
         profile_mode,
+        show_title_bar,
     )?;
 
     Ok(DesktopEntry {
@@ -461,6 +645,7 @@ fn write_launcher(
         exec,
         startup_wm_class: window_class,
         profile_mode,
+        show_title_bar,
     })
 }
 
@@ -521,8 +706,16 @@ fn seed_chromium_from_browser(browser: &Browser, isolated_user_data: &Path) -> R
     Ok(())
 }
 
-/// Best-effort copy of Firefox extension/session files into an isolated profile.
-fn seed_firefox_from_browser(browser: &Browser, isolated_profile: &Path) -> Result<()> {
+/// Best-effort copy of Firefox extensions + session data into a private profile.
+///
+/// Chromium Shared mode copies IndexedDB/Local Storage; Firefox must do the same for
+/// sites like WhatsApp Web that keep logins in origin storage, not only cookies.
+fn seed_firefox_from_browser(
+    browser: &Browser,
+    isolated_profile: &Path,
+    page_url: &str,
+    show_title_bar: bool,
+) -> Result<()> {
     let Some(source) = browser::firefox_default_profile_dir(browser) else {
         return Ok(());
     };
@@ -541,23 +734,58 @@ fn seed_firefox_from_browser(browser: &Browser, isolated_profile: &Path) -> Resu
         }
     }
 
-    // Extension storage (moz-extension+++…) — large but needed for logged-in addons.
+    // Extension storage + site origin storage (IndexedDB / localStorage / Cache API).
+    // Only copy origins that match the web app URL so we don't clone the entire
+    // browser profile (~hundreds of MB) into every Shared app.
     let storage_src = source.join("storage/default");
     if storage_src.is_dir() {
         let storage_dest = isolated_profile.join("storage/default");
+        let host = host_from_url(page_url);
         if let Ok(rd) = fs::read_dir(&storage_src) {
             for entry in rd.flatten() {
                 let name = entry.file_name();
                 let s = name.to_string_lossy();
-                if s.starts_with("moz-extension+++") || s.starts_with("moz-extension+") {
-                    let _ = copy_dir_recursive(&entry.path(), &storage_dest.join(name));
+                let is_extension =
+                    s.starts_with("moz-extension+++") || s.starts_with("moz-extension+");
+                let is_site = host
+                    .as_ref()
+                    .map(|h| origin_matches_host(&s, h))
+                    .unwrap_or(false);
+                if !is_extension && !is_site {
+                    continue;
                 }
+                let dest = storage_dest.join(&name);
+                // Replace incomplete stubs left by a prior launch before seed ran.
+                if dest.exists() {
+                    let _ = fs::remove_dir_all(&dest);
+                }
+                let _ = copy_dir_recursive(&entry.path(), &dest);
             }
+        }
+    }
+
+    // QuotaManager / legacy localStorage registries (best-effort; missing is OK).
+    for rel in [
+        "storage.sqlite",
+        "storage.sqlite-wal",
+        "storage.sqlite-shm",
+        "storage/ls-archive.sqlite",
+        "storage/ls-archive.sqlite-wal",
+        "storage/ls-archive.sqlite-shm",
+    ] {
+        let src = source.join(rel);
+        let dest = isolated_profile.join(rel);
+        if src.is_file() {
+            if let Some(parent) = dest.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::copy(&src, &dest);
         }
     }
 
     // Registry / state files. Rewrite absolute paths inside JSON so addons resolve
     // under the new profile instead of the source browser profile.
+    // Include SQLite WAL/SHM so we don't seed a stale main DB while Firefox is open.
     for name in [
         "extensions.json",
         "addons.json",
@@ -572,6 +800,15 @@ fn seed_firefox_from_browser(browser: &Browser, isolated_profile: &Path) -> Resu
         "key4.db",
         "cert9.db",
         "places.sqlite",
+        "places.sqlite-wal",
+        "places.sqlite-shm",
+        "permissions.sqlite",
+        "permissions.sqlite-wal",
+        "permissions.sqlite-shm",
+        "webappsstore.sqlite",
+        "webappsstore.sqlite-wal",
+        "webappsstore.sqlite-shm",
+        "serviceworker.txt",
         "prefs.js",
     ] {
         let src = source.join(name);
@@ -592,20 +829,8 @@ fn seed_firefox_from_browser(browser: &Browser, isolated_profile: &Path) -> Resu
         let _ = fs::copy(&src, &dest);
     }
 
-    // Ensure userChrome still applies after prefs.js seed.
-    let user_js = isolated_profile.join("user.js");
-    if !user_js.exists() {
-        let _ = fs::write(
-            &user_js,
-            r#"// Generated by Anchor
-user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
-user_pref("browser.startup.homepage_override.mstone", "ignore");
-user_pref("browser.shell.checkDefaultBrowser", false);
-user_pref("datareporting.policy.dataSubmissionEnabled", false);
-user_pref("toolkit.telemetry.enabled", false);
-"#,
-        );
-    }
+    // Always re-apply app chrome / user.js after prefs.js seed (seed overwrites prefs).
+    let _ = ensure_firefox_app_chrome(isolated_profile, show_title_bar);
     Ok(())
 }
 
@@ -642,34 +867,186 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Minimal Firefox profile so the app starts without the profile manager.
-fn seed_firefox_profile(profile: &Path) -> Result<()> {
-    fs::create_dir_all(profile)?;
-    let chrome = profile.join("chrome");
-    fs::create_dir_all(&chrome)?;
+/// Hide tabs / URL bar / sidebars, and fully collapse the CSD title strip.
+///
+/// Firefox 133+ vertical tabs live under `#sidebar-container` *outside*
+/// `#navigator-toolbox`. Shared profiles seed `sidebar.verticalTabs=true` from
+/// the main browser, which left a tab strip on apps like Grok.
+const FIREFOX_USER_CHROME_FRAMELESS: &str = r#"/* Anchor — frameless web-app chrome (no title bar) */
+#navigator-toolbox {
+  display: none !important;
+}
 
-    // Hide most chrome for a more app-like window (optional / soft).
-    let user_chrome = r#"/* Anchor — minimal web-app chrome */
+#titlebar,
 #TabsToolbar,
+#tabbrowser-tabs,
 #nav-bar,
-#PersonalToolbar,
-#statuspanel {
+#PersonalToolbar {
+  display: none !important;
   visibility: collapse !important;
 }
-"#;
-    fs::write(chrome.join("userChrome.css"), user_chrome)?;
 
-    let user_js = r#"// Generated by Anchor
+/* Vertical tabs + new sidebar (outside navigator-toolbox) */
+#sidebar-container,
+sidebar-main,
+#vertical-tabs,
+#sidebar-launcher-splitter,
+#sidebar-box,
+#sidebar-header,
+#sidebar-splitter,
+#ai-window-box,
+#ai-window-splitter,
+#statuspanel {
+  display: none !important;
+  visibility: collapse !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+}
+"#;
+
+/// Hide tabs / URL bar but keep the native window title bar (close/min/max + title).
+const FIREFOX_USER_CHROME_WITH_TITLEBAR: &str = r#"/* Anchor — web-app chrome with window title bar */
+#TabsToolbar,
+#tabbrowser-tabs,
+#nav-bar,
+#PersonalToolbar {
+  visibility: collapse !important;
+}
+
+/* Vertical tabs + new sidebar (outside navigator-toolbox) */
+#sidebar-container,
+sidebar-main,
+#vertical-tabs,
+#sidebar-launcher-splitter,
+#sidebar-box,
+#sidebar-header,
+#sidebar-splitter,
+#ai-window-box,
+#ai-window-splitter,
+#statuspanel {
+  display: none !important;
+  visibility: collapse !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+}
+"#;
+
+fn firefox_user_js(show_title_bar: bool) -> String {
+    // inTitlebar=0 → separate native GNOME title bar.
+    // inTitlebar=1 → tabs draw into CSD; collapsing chrome removes the strip.
+    let in_titlebar = if show_title_bar { 0 } else { 1 };
+    format!(
+        r#"// Generated by Anchor — do not remove; re-applied on repair
 user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
+user_pref("browser.tabs.inTitlebar", {in_titlebar});
+/* Disable Firefox vertical tabs / sidebar revamp (seeded from Shared browser). */
+user_pref("sidebar.verticalTabs", false);
+user_pref("sidebar.revamp", false);
+user_pref("sidebar.visibility", "hide");
 user_pref("browser.startup.homepage_override.mstone", "ignore");
 user_pref("browser.shell.checkDefaultBrowser", false);
 user_pref("datareporting.policy.dataSubmissionEnabled", false);
 user_pref("toolkit.telemetry.enabled", false);
-"#;
-    fs::write(profile.join("user.js"), user_js)?;
+user_pref("browser.startup.firstrunSkipsHomepage", true);
+user_pref("trailhead.firstrun.didSeeAboutWelcome", true);
+"#
+    )
+}
+
+fn firefox_user_chrome(show_title_bar: bool) -> &'static str {
+    if show_title_bar {
+        FIREFOX_USER_CHROME_WITH_TITLEBAR
+    } else {
+        FIREFOX_USER_CHROME_FRAMELESS
+    }
+}
+
+/// Write (or refresh) userChrome.css + user.js for the chosen title-bar mode.
+///
+/// Returns true if either file was created or content changed.
+fn ensure_firefox_app_chrome(profile: &Path, show_title_bar: bool) -> Result<bool> {
+    fs::create_dir_all(profile)?;
+    let chrome_dir = profile.join("chrome");
+    fs::create_dir_all(&chrome_dir)?;
+
+    let mut changed = false;
+    let wanted_chrome = firefox_user_chrome(show_title_bar);
+    let wanted_js = firefox_user_js(show_title_bar);
+
+    let chrome_path = chrome_dir.join("userChrome.css");
+    let current_chrome = fs::read_to_string(&chrome_path).unwrap_or_default();
+    if current_chrome != wanted_chrome {
+        fs::write(&chrome_path, wanted_chrome)
+            .with_context(|| format!("write {}", chrome_path.display()))?;
+        changed = true;
+    }
+
+    let user_js_path = profile.join("user.js");
+    let current_js = fs::read_to_string(&user_js_path).unwrap_or_default();
+    if current_js != wanted_js {
+        fs::write(&user_js_path, &wanted_js)
+            .with_context(|| format!("write {}", user_js_path.display()))?;
+        changed = true;
+    }
+
+    // Soften prefs.js if present so a live prefs.js does not fight user.js.
+    let prefs_path = profile.join("prefs.js");
+    if prefs_path.is_file() {
+        if let Ok(text) = fs::read_to_string(&prefs_path) {
+            let fixed = normalize_firefox_prefs_js(&text, show_title_bar);
+            if fixed != text {
+                let _ = fs::write(&prefs_path, fixed);
+                changed = true;
+            }
+        }
+    }
+
+    Ok(changed)
+}
+
+/// Force critical Anchor prefs inside an existing prefs.js blob.
+fn normalize_firefox_prefs_js(text: &str, show_title_bar: bool) -> String {
+    let in_titlebar = if show_title_bar { 0 } else { 1 };
+    let mut lines: Vec<String> = text
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            // Drop lines we will re-append so we never leave conflicting values.
+            !(t.contains("browser.tabs.inTitlebar")
+                || t.contains("toolkit.legacyUserProfileCustomizations.stylesheets")
+                || t.contains("sidebar.verticalTabs")
+                || t.contains("sidebar.revamp")
+                || t.contains("sidebar.visibility")
+                || t.contains("sidebar.backupState"))
+        })
+        .map(|l| l.to_string())
+        .collect();
+    lines.push(r#"user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);"#.into());
+    lines.push(format!(
+        r#"user_pref("browser.tabs.inTitlebar", {in_titlebar});"#
+    ));
+    lines.push(r#"user_pref("sidebar.verticalTabs", false);"#.into());
+    lines.push(r#"user_pref("sidebar.revamp", false);"#.into());
+    lines.push(r#"user_pref("sidebar.visibility", "hide");"#.into());
+    let mut out = lines.join("\n");
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+/// Minimal Firefox profile so the app starts without the profile manager.
+fn seed_firefox_profile(profile: &Path, show_title_bar: bool) -> Result<()> {
+    fs::create_dir_all(profile)?;
+    ensure_firefox_app_chrome(profile, show_title_bar)?;
 
     // Empty places so Firefox treats this as a valid profile
-    fs::write(profile.join("times.json"), r#"{"created":0}"#)?;
+    let times = profile.join("times.json");
+    if !times.exists() {
+        fs::write(&times, r#"{"created":0}"#)?;
+    }
     Ok(())
 }
 
@@ -728,6 +1105,131 @@ mod tests {
         let c = generate_codename("!!!");
         assert!(c.starts_with("WebApp"));
     }
+
+    #[test]
+    fn origin_matches_whatsapp_and_google_hosts() {
+        assert!(origin_matches_host(
+            "https+++web.whatsapp.com",
+            "web.whatsapp.com"
+        ));
+        assert!(origin_matches_host(
+            "https+++www.whatsapp.com",
+            "web.whatsapp.com"
+        ));
+        assert!(origin_matches_host(
+            "https+++flows.whatsapp.net^partitionKey=%28https%2Cwhatsapp.com%29",
+            "web.whatsapp.com"
+        ));
+        assert!(origin_matches_host(
+            "https+++accounts.google.com",
+            "mail.google.com"
+        ));
+        assert!(!origin_matches_host(
+            "https+++app.notion.com",
+            "web.whatsapp.com"
+        ));
+        assert!(!origin_matches_host(
+            "moz-extension+++83b1683e-ad7e-4388-a5d6-ec89dd05df0c",
+            "web.whatsapp.com"
+        ));
+    }
+
+    #[test]
+    fn normalize_prefs_forces_in_titlebar() {
+        let input = r#"// Mozilla User Preferences
+user_pref("browser.tabs.inTitlebar", 0);
+user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", false);
+user_pref("browser.search.region", "US");
+"#;
+        let out = normalize_firefox_prefs_js(input, false);
+        assert!(out.contains(r#"user_pref("browser.tabs.inTitlebar", 1)"#));
+        assert!(out.contains(
+            r#"user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true)"#
+        ));
+        assert!(!out.contains(r#"user_pref("browser.tabs.inTitlebar", 0)"#));
+        assert!(out.contains(r#"user_pref("browser.search.region", "US")"#));
+
+        let with_bar = normalize_firefox_prefs_js(input, true);
+        assert!(with_bar.contains(r#"user_pref("browser.tabs.inTitlebar", 0)"#));
+    }
+
+    #[test]
+    fn ensure_firefox_app_chrome_writes_frameless_and_titled() {
+        let tmp = std::env::temp_dir().join(format!(
+            "anchor-ff-chrome-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        // Simulate a broken Shared profile (native title bar).
+        fs::write(
+            tmp.join("prefs.js"),
+            r#"user_pref("browser.tabs.inTitlebar", 0);
+user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
+"#,
+        )
+        .unwrap();
+
+        assert!(ensure_firefox_app_chrome(&tmp, false).unwrap());
+        let chrome = fs::read_to_string(tmp.join("chrome/userChrome.css")).unwrap();
+        assert!(chrome.contains("#navigator-toolbox"));
+        assert!(chrome.contains("#titlebar"));
+        assert!(
+            chrome.contains("#sidebar-container") && chrome.contains("#vertical-tabs"),
+            "must hide Firefox vertical tabs sidebar"
+        );
+        let user_js = fs::read_to_string(tmp.join("user.js")).unwrap();
+        assert!(user_js.contains(r#"user_pref("browser.tabs.inTitlebar", 1)"#));
+        assert!(user_js.contains(r#"user_pref("sidebar.verticalTabs", false)"#));
+        assert!(user_js.contains(r#"user_pref("sidebar.revamp", false)"#));
+        let prefs = fs::read_to_string(tmp.join("prefs.js")).unwrap();
+        assert!(prefs.contains(r#"user_pref("browser.tabs.inTitlebar", 1)"#));
+        assert!(!prefs.contains(r#"user_pref("browser.tabs.inTitlebar", 0)"#));
+        assert!(prefs.contains(r#"user_pref("sidebar.verticalTabs", false)"#));
+        assert!(!prefs.contains(r#"user_pref("sidebar.verticalTabs", true)"#));
+
+        // Second call is a no-op when files already match.
+        assert!(!ensure_firefox_app_chrome(&tmp, false).unwrap());
+
+        // Switch to show title bar — sidebars still hidden.
+        assert!(ensure_firefox_app_chrome(&tmp, true).unwrap());
+        let chrome = fs::read_to_string(tmp.join("chrome/userChrome.css")).unwrap();
+        assert!(!chrome.contains("#navigator-toolbox {\n  display: none"));
+        assert!(chrome.contains("#TabsToolbar"));
+        assert!(chrome.contains("#sidebar-container"));
+        let user_js = fs::read_to_string(tmp.join("user.js")).unwrap();
+        assert!(user_js.contains(r#"user_pref("browser.tabs.inTitlebar", 0)"#));
+        assert!(user_js.contains(r#"user_pref("sidebar.verticalTabs", false)"#));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn site_session_detects_substantial_idb() {
+        let tmp = std::env::temp_dir().join(format!(
+            "anchor-ff-session-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        let origin = tmp
+            .join("storage/default")
+            .join("https+++web.whatsapp.com");
+        fs::create_dir_all(origin.join("idb")).unwrap();
+        // Empty stub (~48 KiB) should not count
+        fs::write(origin.join("idb/stub.sqlite"), vec![0u8; 48 * 1024]).unwrap();
+        assert!(!firefox_profile_has_site_session(
+            &tmp,
+            "https://web.whatsapp.com/"
+        ));
+        // Real session blob
+        fs::write(origin.join("idb/session.sqlite"), vec![0u8; 200 * 1024]).unwrap();
+        assert!(firefox_profile_has_site_session(
+            &tmp,
+            "https://web.whatsapp.com/"
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }
 
 #[cfg(test)]
@@ -762,18 +1264,21 @@ mod integration {
             icon_override: None,
             icon_source: IconSource::Local(tmp.clone()),
             profile_mode: ProfileMode::Isolated,
+            show_title_bar: false,
         })
         .expect("create");
 
         assert!(entry.path.exists());
         assert!(PathBuf::from(&entry.icon).exists());
         assert_eq!(entry.profile_mode, ProfileMode::Isolated);
+        assert!(!entry.show_title_bar);
         let listed = list_webapps().unwrap();
         assert!(listed.iter().any(|a| a.codename == entry.codename));
 
         let desktop = std::fs::read_to_string(&entry.path).unwrap();
         assert!(desktop.contains("X-WebApp-Manager=anchor"));
         assert!(desktop.contains("X-WebApp-ProfileMode=isolated"));
+        assert!(desktop.contains("X-WebApp-ShowTitleBar=false"));
         assert!(desktop.contains("StartupWMClass="));
         // Chromium-family apps must use the Wayland app_id, not WebApp-*
         if entry.exec.contains("--app=") {
@@ -810,12 +1315,15 @@ mod integration {
             icon_override: None,
             icon_source: IconSource::Local(tmp.clone()),
             profile_mode: ProfileMode::Shared,
+            show_title_bar: true,
         })
         .expect("create shared");
         assert_eq!(shared.profile_mode, ProfileMode::Shared);
+        assert!(shared.show_title_bar);
         let shared_desktop = std::fs::read_to_string(&shared.path).unwrap();
         assert!(shared_desktop.contains("X-WebApp-ProfileMode=shared"));
         assert!(shared_desktop.contains("X-WebApp-Isolated=false"));
+        assert!(shared_desktop.contains("X-WebApp-ShowTitleBar=true"));
         if browser.family == BrowserFamily::Chromium {
             assert!(
                 shared.exec.contains("--user-data-dir="),
@@ -859,6 +1367,7 @@ mod integration {
             icon_override: None,
             icon_source: IconSource::Local(tmp.clone()),
             profile_mode: ProfileMode::Isolated,
+            show_title_bar: false,
         })
         .expect("create for edit");
         let codename = created.codename.clone();
@@ -869,16 +1378,19 @@ mod integration {
             browser: browser.clone(),
             icon_source: IconSource::KeepExisting,
             profile_mode: ProfileMode::Shared,
+            show_title_bar: true,
         })
         .expect("update");
         assert_eq!(updated.codename, codename);
         assert_eq!(updated.name, "ZWM Edited");
         assert!(updated.url.contains("example.org"));
         assert_eq!(updated.profile_mode, ProfileMode::Shared);
+        assert!(updated.show_title_bar);
         assert_eq!(updated.path, created.path);
         let desktop = std::fs::read_to_string(&updated.path).unwrap();
         assert!(desktop.contains("Name=ZWM Edited"));
         assert!(desktop.contains("X-WebApp-ProfileMode=shared"));
+        assert!(desktop.contains("X-WebApp-ShowTitleBar=true"));
         if browser.family == BrowserFamily::Chromium {
             assert!(
                 updated.exec.contains("--user-data-dir="),

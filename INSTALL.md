@@ -268,6 +268,8 @@ After upgrading, open **Anchor once** so existing Shared launchers are repaired 
 
 **Firefox Developer Edition note:** profiles live under `~/.config/mozilla/firefox/` (not only `~/.mozilla/firefox/`). Shared mode picks the real Dev Edition profile (`dev-edition-default` / `[Install]` default), not an empty stub.
 
+**Firefox Shared site logins (WhatsApp, etc.):** Shared mode copies cookies **and** origin storage (`storage/default/https+++…` IndexedDB/localStorage) for the web app’s domain. Apps that only got extensions/cookies before this fix are re-seeded the next time you open Anchor (fully quit the web app and Firefox first so files are not locked).
+
 ### No browsers listed
 
 Install a supported browser and ensure it is on your `PATH`, or set a default browser:

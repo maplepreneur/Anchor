@@ -11,7 +11,7 @@ use gtk::{
     ScrolledWindow, StringList,
 };
 use libadwaita::prelude::*;
-use libadwaita::{ComboRow, EntryRow, PreferencesGroup};
+use libadwaita::{ComboRow, EntryRow, PreferencesGroup, SwitchRow};
 
 use crate::browser::{self, ProfileMode};
 use crate::desktop::DesktopEntry;
@@ -71,7 +71,7 @@ impl CreateDialog {
                 "Add Web App"
             })
             .content_width(500)
-            .content_height(560)
+            .content_height(620)
             .presentation_mode(libadwaita::DialogPresentationMode::Floating)
             .build();
 
@@ -151,18 +151,33 @@ impl CreateDialog {
             .upcast(),
         ));
 
+        // Title bar: off by default for a frameless app window (matches X.com-style).
+        let initial_show_title = existing
+            .as_ref()
+            .map(|a| a.show_title_bar)
+            .unwrap_or(false);
+        let title_bar_row = SwitchRow::builder()
+            .title("Show title bar")
+            .subtitle(title_bar_subtitle(initial_show_title))
+            .active(initial_show_title)
+            .build();
+        title_bar_row.connect_active_notify(|row| {
+            row.set_subtitle(title_bar_subtitle(row.is_active()));
+        });
+
         let form = PreferencesGroup::builder()
             .title("Web App")
             .description(if is_edit {
-                "Update this app’s name, URL, browser, profile mode, or icon. Tab moves between fields."
+                "Update this app’s name, URL, browser, profile, window chrome, or icon. Tab moves between fields."
             } else {
-                "Choose how the app uses your browser profile and extensions. Tab moves between fields."
+                "Choose browser profile, window chrome, and icon. Tab moves between fields."
             })
             .build();
         form.add(&name_row);
         form.add(&url_row);
         form.add(&browser_row);
         form.add(&profile_row);
+        form.add(&title_bar_row);
 
         // Icon section
         let icon_image = Image::from_icon_name("image-missing-symbolic");
@@ -462,6 +477,7 @@ impl CreateDialog {
             let url_row = url_row.clone();
             let browser_row = browser_row.clone();
             let profile_row = profile_row.clone();
+            let title_bar_row = title_bar_row.clone();
             let browsers = Rc::clone(&browsers);
             let icon_state = Rc::clone(&icon_state);
             let toast_overlay = toast_overlay.clone();
@@ -484,6 +500,7 @@ impl CreateDialog {
                     return;
                 };
                 let profile_mode = profile_mode_from_index(profile_row.selected());
+                let show_title_bar = title_bar_row.is_active();
 
                 let icon_source = match &*icon_state.borrow() {
                     IconState::None => IconSource::Fetch,
@@ -501,6 +518,7 @@ impl CreateDialog {
                         browser,
                         icon_source,
                         profile_mode,
+                        show_title_bar,
                     })
                 } else {
                     webapp::create_webapp(CreateRequest {
@@ -510,6 +528,7 @@ impl CreateDialog {
                         icon_override: None,
                         icon_source,
                         profile_mode,
+                        show_title_bar,
                     })
                 };
 
@@ -589,7 +608,7 @@ fn profile_mode_subtitle(mode: ProfileMode) -> &'static str {
     match mode {
         ProfileMode::Isolated => "Separate empty profile — independent of your main browser",
         ProfileMode::Shared => {
-            "Private profile, seeded with your browser’s logins & extensions (e.g. 1Password)"
+            "Private profile, seeded with your browser’s logins, site data & extensions"
         }
     }
 }
@@ -600,8 +619,16 @@ fn profile_mode_hint(mode: ProfileMode) -> &'static str {
             "Note: Starts signed out with its own dock icon. Sign in once inside the web app."
         }
         ProfileMode::Shared => {
-            "Note: Copies extensions and logins from your browser into a private profile when created, so the web app keeps its own dock icon (separate process). Close the browser first for a more complete copy. Re-seed by switching away from Shared and back again."
+            "Note: Copies extensions, cookies, and site storage (IndexedDB/localStorage — needed for WhatsApp, etc.) from your browser into a private profile so the web app keeps its own dock icon. Close the browser and the web app first for a complete copy. Re-seed by switching away from Shared and back again."
         }
+    }
+}
+
+fn title_bar_subtitle(show: bool) -> &'static str {
+    if show {
+        "Native window title bar with close / minimize / maximize (Firefox)"
+    } else {
+        "Frameless window — hide the title bar for an app-like look (Firefox; default)"
     }
 }
 

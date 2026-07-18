@@ -1,11 +1,19 @@
 # Mountie
 
-**Mountie helps you mount websites into desktop apps on Linux with ease!**
+<p align="center">
+  <img src="resources/icons/com.voxelnorth.Mountie.png" alt="Mountie logo" width="160" height="160">
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform: Linux](https://img.shields.io/badge/platform-Linux-brightgreen.svg)](#install)
-[![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
-[![UI: GTK4](https://img.shields.io/badge/UI-GTK4%20%2F%20libadwaita-purple.svg)](https://www.gtk.org/)
+<p align="center">
+  <strong>Mountie helps you mount websites into desktop apps on Linux with ease!</strong>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="#install"><img src="https://img.shields.io/badge/platform-Linux-brightgreen.svg" alt="Platform: Linux"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/built%20with-Rust-orange.svg" alt="Built with Rust"></a>
+  <a href="https://www.gtk.org/"><img src="https://img.shields.io/badge/UI-GTK4%20%2F%20libadwaita-purple.svg" alt="UI: GTK4"></a>
+</p>
 
 Mountie is a free, open-source **web app manager** for Linux. Give it a name and a URL—it fetches an icon, launches the site in its own window, and pins cleanly to your dock with a separate process from your everyday browser.
 

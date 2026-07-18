@@ -11,7 +11,7 @@ use scraper::{Html, Selector};
 use url::Url;
 
 const USER_AGENT: &str = concat!(
-    "Anchor/0.1 (+https://github.com/maplepreneur/Anchor; ",
+    "Mountie/0.1 (+https://github.com/maplepreneur/Mountie; ",
     "favicon fetcher)"
 );
 const ICON_SIZE: u32 = 128;
@@ -185,7 +185,7 @@ mod tests {
         let mut png = Vec::new();
         img.write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
-        let dir = std::env::temp_dir().join("anchor-favicon-test");
+        let dir = std::env::temp_dir().join("mountie-favicon-test");
         let _ = std::fs::create_dir_all(&dir);
         let dest = dir.join("out.png");
         bytes_to_png_file(&png, &dest).unwrap();

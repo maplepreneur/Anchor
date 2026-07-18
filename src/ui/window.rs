@@ -50,7 +50,7 @@ impl MainWindow {
             .icon_name("web-browser-symbolic")
             .title("No web apps yet")
             .description(
-                "Anchor turns any website into a desktop app with its own icon and browser profile.\n\nPress Ctrl+N to add one, or F1 for keyboard shortcuts.",
+                "Mountie helps you mount websites into desktop apps on Linux with ease — each with its own icon and browser profile.\n\nPress Ctrl+N to add one, or F1 for keyboard shortcuts.",
             )
             .build();
 
@@ -79,7 +79,7 @@ impl MainWindow {
         toast_overlay.set_child(Some(&outer));
 
         let header = HeaderBar::new();
-        let title = libadwaita::WindowTitle::new("Anchor", "Web apps for your desktop");
+        let title = libadwaita::WindowTitle::new("Mountie", "Mount websites as desktop apps");
         header.set_title_widget(Some(&title));
 
         let add_btn = Button::builder()
@@ -107,7 +107,7 @@ impl MainWindow {
 
         let window = ApplicationWindow::builder()
             .application(app)
-            .title("Anchor")
+            .title("Mountie")
             .default_width(640)
             .default_height(720)
             .content(&toolbar)

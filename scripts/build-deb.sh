@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Build a Debian package for Anchor from a release binary.
+# Build a Debian package for Mountie from a release binary.
 #
 # Usage:
 #   ./scripts/build-deb.sh              # version from Cargo.toml
 #   ./scripts/build-deb.sh 0.2.0        # override version
-#   ./scripts/build-deb.sh --skip-build # reuse target/release/anchor
+#   ./scripts/build-deb.sh --skip-build # reuse target/release/mountie
 #
 # Output:
-#   dist/anchor_<version>_<arch>.deb
+#   dist/mountie_<version>_<arch>.deb
 
 set -euo pipefail
 
@@ -57,13 +57,13 @@ case "$HOST_ARCH" in
     ;;
 esac
 
-PKG_NAME="anchor"
+PKG_NAME="mountie"
 DEB_BASENAME="${PKG_NAME}_${VERSION}_${DEB_ARCH}"
 DIST_DIR="$ROOT/dist"
 STAGE="$DIST_DIR/${DEB_BASENAME}"
 DEB_PATH="$DIST_DIR/${DEB_BASENAME}.deb"
 
-echo "==> Building Anchor ${VERSION} (${DEB_ARCH})"
+echo "==> Building Mountie ${VERSION} (${DEB_ARCH})"
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   if ! command -v cargo >/dev/null 2>&1; then
@@ -72,13 +72,13 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
   fi
   cargo build --release
 else
-  if [[ ! -x "$ROOT/target/release/anchor" ]]; then
-    echo "error: --skip-build set but target/release/anchor is missing" >&2
+  if [[ ! -x "$ROOT/target/release/mountie" ]]; then
+    echo "error: --skip-build set but target/release/mountie is missing" >&2
     exit 1
   fi
 fi
 
-BINARY="$ROOT/target/release/anchor"
+BINARY="$ROOT/target/release/mountie"
 if [[ ! -x "$BINARY" ]]; then
   echo "error: release binary not found at $BINARY" >&2
   exit 1
@@ -93,17 +93,17 @@ mkdir -p \
   "$STAGE/usr/share/icons/hicolor/256x256/apps" \
   "$STAGE/usr/share/doc/${PKG_NAME}"
 
-install -m 755 "$BINARY" "$STAGE/usr/bin/anchor"
-install -m 644 "$ROOT/resources/com.voxelnorth.Anchor.desktop" \
-  "$STAGE/usr/share/applications/com.voxelnorth.Anchor.desktop"
-install -m 644 "$ROOT/resources/icons/com.voxelnorth.Anchor.png" \
-  "$STAGE/usr/share/icons/hicolor/256x256/apps/com.voxelnorth.Anchor.png"
+install -m 755 "$BINARY" "$STAGE/usr/bin/mountie"
+install -m 644 "$ROOT/resources/com.voxelnorth.Mountie.desktop" \
+  "$STAGE/usr/share/applications/com.voxelnorth.Mountie.desktop"
+install -m 644 "$ROOT/resources/icons/com.voxelnorth.Mountie.png" \
+  "$STAGE/usr/share/icons/hicolor/256x256/apps/com.voxelnorth.Mountie.png"
 
 # Copyright / license for Debian policy
 {
   echo "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/"
-  echo "Upstream-Name: Anchor"
-  echo "Source: https://github.com/maplepreneur/Anchor"
+  echo "Upstream-Name: Mountie"
+  echo "Source: https://github.com/maplepreneur/Mountie"
   echo
   echo "Files: *"
   echo "Copyright: 2026 Voxel North"
@@ -126,7 +126,7 @@ chmod 644 "$STAGE/usr/share/doc/${PKG_NAME}/changelog.Debian.gz"
 # Normalize directory modes (Debian prefers 755, no group-write surprises)
 find "$STAGE" -type d -exec chmod 755 {} +
 find "$STAGE/usr" -type f -exec chmod a-w {} +
-chmod 755 "$STAGE/usr/bin/anchor"
+chmod 755 "$STAGE/usr/bin/mountie"
 
 # Runtime dependencies (GTK4 + libadwaita stack)
 # Keep Depends loose enough for recent Ubuntu/Debian/Zorin.
@@ -140,12 +140,12 @@ Priority: optional
 Architecture: ${DEB_ARCH}
 Depends: ${CONTROL_DEPENDS}
 Maintainer: Voxel North <noreply@voxelnorth.com>
-Homepage: https://github.com/maplepreneur/Anchor
-Description: Turn any website into a real desktop app
- Anchor is a free, open-source web app manager for Linux. Give it a name and a
- URL — it fetches an icon, launches the site in its own window, and pins cleanly
- to your dock with a separate process from your everyday browser.
- Built for Zorin OS, Ubuntu, and GNOME desktops.
+Homepage: https://github.com/maplepreneur/Mountie
+Description: Mount websites into desktop apps on Linux with ease
+ Mountie helps you mount websites into desktop apps on Linux with ease.
+ Give it a name and a URL — it fetches an icon, launches the site in its own
+ window, and pins cleanly to your dock with a separate process from your
+ everyday browser. Built for Zorin OS, Ubuntu, and GNOME desktops.
 EOF
 
 cat > "$STAGE/DEBIAN/postinst" <<'EOF'

@@ -40,23 +40,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anchor"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dirs",
- "glib",
- "gtk4",
- "image",
- "libadwaita",
- "rand 0.8.6",
- "reqwest",
- "scraper",
- "thiserror 1.0.69",
- "url",
-]
-
-[[package]]
 name = "anyhow"
 version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1456,6 +1439,23 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mountie"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "glib",
+ "gtk4",
+ "image",
+ "libadwaita",
+ "rand 0.8.6",
+ "reqwest",
+ "scraper",
+ "thiserror 1.0.69",
+ "url",
 ]
 
 [[package]]

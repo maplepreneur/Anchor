@@ -1,6 +1,6 @@
 # Packaging & installation guide
 
-This document describes how **Anchor** is installed and packaged for Linux: the user-facing install script, Debian (`.deb`) package generation, release publishing, file layouts, and troubleshooting.
+This document describes how **Mountie** is installed and packaged for Linux: the user-facing install script, Debian (`.deb`) package generation, release publishing, file layouts, and troubleshooting.
 
 For day-to-day end-user steps, see also [INSTALL.md](../INSTALL.md) and the [README](../README.md#install).
 
@@ -27,7 +27,7 @@ For day-to-day end-user steps, see also [INSTALL.md](../INSTALL.md) and the [REA
 
 ## Overview
 
-Anchor ships two complementary install paths:
+Mountie ships two complementary install paths:
 
 | Path | Tool | Best for |
 |---|---|---|
@@ -37,7 +37,7 @@ Anchor ships two complementary install paths:
 ```text
                     ┌─────────────────────┐
                     │   GitHub Release    │
-                    │ anchor_X.Y.Z_*.deb  │
+                    │ mountie_X.Y.Z_*.deb  │
                     └──────────┬──────────┘
                                │ download
            ┌───────────────────┼───────────────────┐
@@ -75,14 +75,14 @@ Design goals:
 
 ```bash
 # Recommended: install script (deb if available, else source → ~/.local)
-curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash
 
 # System-wide on Debian/Ubuntu/Zorin
-curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash -s -- --system
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash -s -- --system
 
 # From a git clone
-git clone https://github.com/maplepreneur/Anchor.git
-cd Anchor
+git clone https://github.com/maplepreneur/Mountie.git
+cd Mountie
 ./install.sh
 ```
 
@@ -91,16 +91,16 @@ cd Anchor
 ```bash
 # Build versioned .deb from Cargo.toml version
 ./scripts/build-deb.sh
-# → dist/anchor_<version>_<arch>.deb
+# → dist/mountie_<version>_<arch>.deb
 
-# Reuse existing target/release/anchor
+# Reuse existing target/release/mountie
 ./scripts/build-deb.sh --skip-build
 
 # Stamp a specific version in the package metadata
 ./scripts/build-deb.sh 0.2.0
 
 # Install the local package
-sudo apt install ./dist/anchor_*.deb
+sudo apt install ./dist/mountie_*.deb
 ```
 
 ---
@@ -111,7 +111,7 @@ sudo apt install ./dist/anchor_*.deb
 
 | Context | Command |
 |---|---|
-| Remote (pipe) | `curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh \| bash` |
+| Remote (pipe) | `curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh \| bash` |
 | Remote with flags | `curl -fsSL …/install.sh \| bash -s -- --system` |
 | Local clone | `./install.sh [flags]` |
 
@@ -134,14 +134,14 @@ The script is POSIX-ish Bash with `set -euo pipefail`. It must be run with Bash 
 
 When no flag is passed, the script chooses:
 
-1. **Local package** — if run from a clone that has `dist/anchor_*.deb` and the OS is Debian-like:
+1. **Local package** — if run from a clone that has `dist/mountie_*.deb` and the OS is Debian-like:
    - Interactive TTY: prompt to install that package system-wide.
    - Non-interactive (`curl | bash` or `--yes`): install it without prompting.
 2. **GitHub Release `.deb`** — on Debian-like systems, query  
-   `https://api.github.com/repos/maplepreneur/Anchor/releases/latest`  
+   `https://api.github.com/repos/maplepreneur/Mountie/releases/latest`  
    and download an asset matching  
-   `anchor_*_<arch>.deb`  
-   (e.g. `anchor_0.1.0_amd64.deb`). Install with `apt`/`dpkg`.
+   `mountie_*_<arch>.deb`  
+   (e.g. `mountie_0.1.0_amd64.deb`). Install with `apt`/`dpkg`.
 3. **Build from source** — clone (if needed), install build deps on Debian-like systems, ensure Rust via rustup, `cargo build --release`, install to `~/.local`.
 
 ### Debian-like detection
@@ -157,9 +157,9 @@ That covers Debian, Ubuntu, Zorin OS, Linux Mint, Pop!_OS, and most derivatives.
 
 | Source | Destination |
 |---|---|
-| Release binary `anchor` | `~/.local/bin/anchor` |
-| `resources/com.voxelnorth.Anchor.desktop` | `~/.local/share/applications/com.voxelnorth.Anchor.desktop` |
-| `resources/icons/com.voxelnorth.Anchor.png` | `~/.local/share/icons/hicolor/256x256/apps/com.voxelnorth.Anchor.png` |
+| Release binary `mountie` | `~/.local/bin/mountie` |
+| `resources/com.voxelnorth.Mountie.desktop` | `~/.local/share/applications/com.voxelnorth.Mountie.desktop` |
+| `resources/icons/com.voxelnorth.Mountie.png` | `~/.local/share/icons/hicolor/256x256/apps/com.voxelnorth.Mountie.png` |
 
 When the script is not run from a source tree, it downloads the desktop file and icon from the `main` branch raw URLs on GitHub.
 
@@ -228,31 +228,31 @@ Produce a standards-friendly binary `.deb` without a full Debian source package 
 |---|---|
 | *(no version)* | Read `version = "…"` from root `Cargo.toml` |
 | `VERSION` | Override package version (e.g. `0.2.0` or `0.2.0-1`) |
-| `--skip-build` | Do not run `cargo build --release`; require `target/release/anchor` |
+| `--skip-build` | Do not run `cargo build --release`; require `target/release/mountie` |
 | `-h` / `--help` | Print header usage |
 
 ### Pipeline
 
 1. Resolve **version** and **Debian architecture** (`amd64`, `arm64`, `armhf`).
 2. Unless `--skip-build`: `cargo build --release`.
-3. Stage a package tree under `dist/anchor_<version>_<arch>/`:
+3. Stage a package tree under `dist/mountie_<version>_<arch>/`:
    - `DEBIAN/control`, `postinst`, `postrm`
-   - `usr/bin/anchor`
-   - desktop file, icon, `usr/share/doc/anchor/{copyright,changelog.Debian.gz}`
+   - `usr/bin/mountie`
+   - desktop file, icon, `usr/share/doc/mountie/{copyright,changelog.Debian.gz}`
 4. Normalize permissions (dirs `755`, binary `755`, data files non-writable).
-5. `dpkg-deb --root-owner-group --build` → `dist/anchor_<version>_<arch>.deb`
+5. `dpkg-deb --root-owner-group --build` → `dist/mountie_<version>_<arch>.deb`
 6. Remove the staging directory; keep the `.deb`.
 
 ### Output artifact
 
 ```text
-dist/anchor_0.1.0_amd64.deb
+dist/mountie_0.1.0_amd64.deb
 ```
 
 Naming is intentional and **must** stay stable for `install.sh` asset discovery:
 
 ```text
-anchor_<version>_<debian_arch>.deb
+mountie_<version>_<debian_arch>.deb
 ```
 
 `dist/` is gitignored (see `.gitignore`).
@@ -279,14 +279,14 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 | Field | Value |
 |---|---|
-| Package | `anchor` |
+| Package | `mountie` |
 | Version | From `Cargo.toml` or override |
 | Section | `utils` |
 | Priority | `optional` |
 | Architecture | Host-mapped Debian arch |
 | Depends | `libgtk-4-1, libadwaita-1-0, libglib2.0-0` |
 | Maintainer | Voxel North |
-| Homepage | https://github.com/maplepreneur/Anchor |
+| Homepage | https://github.com/maplepreneur/Mountie |
 
 `Installed-Size` is computed from the staged `usr/` tree (KiB).
 
@@ -302,12 +302,12 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ### Inspecting a built package
 
 ```bash
-dpkg-deb -I dist/anchor_*.deb    # control metadata
-dpkg-deb -c dist/anchor_*.deb    # file list
-dpkg-deb -f dist/anchor_*.deb Depends Version Architecture
+dpkg-deb -I dist/mountie_*.deb    # control metadata
+dpkg-deb -c dist/mountie_*.deb    # file list
+dpkg-deb -f dist/mountie_*.deb Depends Version Architecture
 
 # Dry-run install
-apt-get install -s ./dist/anchor_0.1.0_amd64.deb
+apt-get install -s ./dist/mountie_0.1.0_amd64.deb
 ```
 
 ---
@@ -318,29 +318,30 @@ apt-get install -s ./dist/anchor_0.1.0_amd64.deb
 
 | Path | Description |
 |---|---|
-| `/usr/bin/anchor` | Application binary (stripped release build) |
-| `/usr/share/applications/com.voxelnorth.Anchor.desktop` | App menu launcher (`Exec=anchor`, icon name) |
-| `/usr/share/icons/hicolor/256x256/apps/com.voxelnorth.Anchor.png` | Application icon |
-| `/usr/share/doc/anchor/copyright` | MIT license (machine-readable header + full text) |
-| `/usr/share/doc/anchor/changelog.Debian.gz` | Per-release packaging changelog |
+| `/usr/bin/mountie` | Application binary (stripped release build) |
+| `/usr/share/applications/com.voxelnorth.Mountie.desktop` | App menu launcher (`Exec=mountie`, icon name) |
+| `/usr/share/icons/hicolor/256x256/apps/com.voxelnorth.Mountie.png` | Application icon |
+| `/usr/share/doc/mountie/copyright` | MIT license (machine-readable header + full text) |
+| `/usr/share/doc/mountie/changelog.Debian.gz` | Per-release packaging changelog |
 
 ### User install (`~/.local`)
 
 | Path | Description |
 |---|---|
-| `~/.local/bin/anchor` | Binary |
-| `~/.local/share/applications/com.voxelnorth.Anchor.desktop` | Launcher |
-| `~/.local/share/icons/hicolor/256x256/apps/com.voxelnorth.Anchor.png` | Icon |
+| `~/.local/bin/mountie` | Binary |
+| `~/.local/share/applications/com.voxelnorth.Mountie.desktop` | Launcher |
+| `~/.local/share/icons/hicolor/256x256/apps/com.voxelnorth.Mountie.png` | Icon |
 
 ### Application data (not part of the package)
 
-Created at runtime by Anchor itself — **not** removed by `apt remove` or `install.sh --uninstall` (except optional manual cleanup in INSTALL.md):
+Created at runtime by Mountie itself — **not** removed by `apt remove` or `install.sh --uninstall` (except optional manual cleanup in INSTALL.md):
 
 | Path | Purpose |
 |---|---|
-| `~/.local/share/anchor/` | Profiles, icons, app metadata |
+| `~/.local/share/mountie/` | Profiles, icons, app metadata |
 | `~/.local/share/applications/webapp-*.desktop` | Per–web-app launchers |
-| `~/.local/share/zorin-webapp-manager/` | Legacy data from the previous project name |
+| `~/.local/share/anchor/` | Legacy data from the Anchor product name |
+| `~/.local/share/zorin-webapp-manager/` | Legacy data from the v1 project name |
 
 ---
 
@@ -356,7 +357,7 @@ Created at runtime by Anchor itself — **not** removed by `apt remove` or `inst
 
 These are typically already installed on Zorin OS and Ubuntu GNOME desktops. A browser is required to *use* web apps but is **not** a package dependency (user choice: Brave, Firefox, Chrome, etc.).
 
-### Build-time (compiling Anchor)
+### Build-time (compiling Mountie)
 
 | Package / tool | Why |
 |---|---|
@@ -378,7 +379,7 @@ Release profile (from `Cargo.toml`): LTO, single codegen unit, stripped binary �
 | Application / crate version | `version` in [`Cargo.toml`](../Cargo.toml) |
 | Debian package version | Same string by default; optional CLI override in `build-deb.sh` |
 | Git tag (recommended) | `v<version>` e.g. `v0.1.0` |
-| Release asset name | `anchor_<version>_<arch>.deb` |
+| Release asset name | `mountie_<version>_<arch>.deb` |
 
 ### Bumping a release version
 
@@ -393,7 +394,7 @@ Release profile (from `Cargo.toml`): LTO, single codegen unit, stripped binary �
 3. Tag:
 
    ```bash
-   git tag -a v0.2.0 -m "Anchor 0.2.0"
+   git tag -a v0.2.0 -m "Mountie 0.2.0"
    git push origin v0.2.0
    ```
 
@@ -411,13 +412,13 @@ Keep crate version, git tag, and `.deb` filename version **aligned** so users an
 ### Asset naming (required)
 
 ```text
-anchor_0.1.0_amd64.deb
-anchor_0.1.0_arm64.deb
+mountie_0.1.0_amd64.deb
+mountie_0.1.0_arm64.deb
 ```
 
 The install script matches:
 
-- package prefix `anchor_`
+- package prefix `mountie_`
 - architecture suffix `_${arch}.deb` where `arch` is `amd64`, `arm64`, or `armhf`
 
 If the name does not match, the script will not see the asset and will fall back to building from source.
@@ -425,16 +426,16 @@ If the name does not match, the script will not see the asset and will fall back
 ### Suggested release notes template
 
 ```markdown
-## Anchor 0.1.0
+## Mountie 0.1.0
 
 ### Install
 
 **Debian / Ubuntu / Zorin**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash
 # or
-sudo apt install ./anchor_0.1.0_amd64.deb
+sudo apt install ./mountie_0.1.0_amd64.deb
 ```
 
 ### Changes
@@ -446,8 +447,8 @@ sudo apt install ./anchor_0.1.0_amd64.deb
 
 1. Run `./scripts/build-deb.sh` on a clean tree matching the release commit.
 2. GitHub → **Releases** → **Draft a new release**.
-3. Choose tag `vX.Y.Z`, title `Anchor X.Y.Z`.
-4. Attach `dist/anchor_X.Y.Z_*.deb`.
+3. Choose tag `vX.Y.Z`, title `Mountie X.Y.Z`.
+4. Attach `dist/mountie_X.Y.Z_*.deb`.
 5. Publish.
 
 ### Optional: CLI release
@@ -455,9 +456,9 @@ sudo apt install ./anchor_0.1.0_amd64.deb
 ```bash
 ./scripts/build-deb.sh
 gh release create "v0.1.0" \
-  --title "Anchor 0.1.0" \
+  --title "Mountie 0.1.0" \
   --notes-file RELEASE_NOTES.md \
-  dist/anchor_0.1.0_amd64.deb
+  dist/mountie_0.1.0_amd64.deb
 ```
 
 ---
@@ -498,35 +499,35 @@ Packages are **not** cross-compiled by default; run `build-deb.sh` on each archi
 ```bash
 ./install.sh --uninstall
 # or
-curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash -s -- --uninstall
 ```
 
 This removes:
 
 - User files under `~/.local` (binary, desktop, icon)
-- Debian package `anchor` if installed via `dpkg`/`apt`
+- Debian package `mountie` if installed via `dpkg`/`apt`
 - `/usr/local` copies if that install path was used
 
-It does **not** delete web apps or `~/.local/share/anchor/` data.
+It does **not** delete web apps or `~/.local/share/mountie/` data.
 
 ### Package manager
 
 ```bash
-sudo apt remove anchor
+sudo apt remove mountie
 # purge config files owned by the package (none under /etc today):
-sudo apt purge anchor
+sudo apt purge mountie
 ```
 
 ### Manual cleanup of web apps (destructive)
 
-See [INSTALL.md](../INSTALL.md#uninstall). Only remove `webapp-*.desktop` files if you are sure Anchor (or the legacy Zorin Web App Manager) created them.
+See [INSTALL.md](../INSTALL.md#uninstall). Only remove `webapp-*.desktop` files if you are sure Mountie (or the legacy Zorin Web App Manager) created them.
 
 ---
 
 ## Security notes
 
 1. **`curl | bash`** — Users should prefer cloning the repo and running `./install.sh` if they want to audit the script first. The raw URL always tracks the `main` branch tip of `install.sh`.
-2. **Release artifacts** — Prefer installing signed/published GitHub Release `.deb` files from the official `maplepreneur/Anchor` repository. Verify checksums if you publish them alongside the assets (optional enhancement).
+2. **Release artifacts** — Prefer installing signed/published GitHub Release `.deb` files from the official `maplepreneur/Mountie` repository. Verify checksums if you publish them alongside the assets (optional enhancement).
 3. **sudo** — System installs and `apt` dependency installation require elevated privileges; the default source install path does not.
 4. **Binary provenance** — `.deb` packages contain a release-built, stripped ELF linked against system GTK/libadwaita. They do not vendor browsers.
 5. **Network during source install** — rustup, crates.io, and git clone traffic occur when building from source.
@@ -537,13 +538,13 @@ See [INSTALL.md](../INSTALL.md#uninstall). Only remove `webapp-*.desktop` files 
 
 ### `install.sh` falls back to source even on Ubuntu
 
-- No GitHub Release exists yet, or the latest release has no matching `anchor_*_<arch>.deb`.
+- No GitHub Release exists yet, or the latest release has no matching `mountie_*_<arch>.deb`.
 - Architecture not in `{amd64,arm64,armhf}`.
 - GitHub API rate limit or network failure (script warns and continues).
 
 **Fix:** Build and publish a correctly named `.deb`, or run `./install.sh --from-source` intentionally.
 
-### `apt install ./anchor_….deb` fails on dependencies
+### `apt install ./mountie_….deb` fails on dependencies
 
 ```bash
 sudo apt-get install -f
@@ -551,7 +552,7 @@ sudo apt-get install -f
 
 Ensure the desktop has GTK4 / libadwaita runtime packages available from the distro.
 
-### `anchor: command not found` after user install
+### `mountie: command not found` after user install
 
 `~/.local/bin` is not on `PATH`:
 
@@ -560,7 +561,7 @@ echo 'export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-(App menu launch via the `.desktop` file does not require `PATH` if the desktop file uses `Exec=anchor` **and** the session includes `~/.local/bin` — many desktops do; if not, install system-wide with a `.deb` or set `Exec=` to an absolute path.)
+(App menu launch via the `.desktop` file does not require `PATH` if the desktop file uses `Exec=mountie` **and** the session includes `~/.local/bin` — many desktops do; if not, install system-wide with a `.deb` or set `Exec=` to an absolute path.)
 
 ### Build fails: missing `gtk4` / `libadwaita-1` pkg-config
 
@@ -605,14 +606,14 @@ Use this when cutting a versioned package release:
 
 - [ ] Version bumped in `Cargo.toml`
 - [ ] `cargo test` and `cargo build --release` pass on the release commit
-- [ ] `./scripts/build-deb.sh` produces `dist/anchor_<ver>_<arch>.deb`
+- [ ] `./scripts/build-deb.sh` produces `dist/mountie_<ver>_<arch>.deb`
 - [ ] `dpkg-deb -I` and `dpkg-deb -c` look correct
 - [ ] `apt-get install -s ./dist/….deb` resolves dependencies
-- [ ] Smoke-run: install package, launch `anchor`, create/launch a test web app
+- [ ] Smoke-run: install package, launch `mountie`, create/launch a test web app
 - [ ] Git tag `v<ver>` pushed
 - [ ] GitHub Release published with correctly named `.deb` asset(s)
 - [ ] Spot-check:  
-      `curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash -s -- --system`  
+      `curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash -s -- --system`  
       on a clean VM (or document source fallback until the release is live)
 - [ ] Update release notes / changelog as needed
 
@@ -642,8 +643,8 @@ The filesystem layout under `/usr` (binary name, desktop id, icon name) should s
 |---|---|
 | [`install.sh`](../install.sh) | End-user installer |
 | [`scripts/build-deb.sh`](../scripts/build-deb.sh) | `.deb` generator |
-| [`resources/com.voxelnorth.Anchor.desktop`](../resources/com.voxelnorth.Anchor.desktop) | Desktop entry template |
-| [`resources/icons/com.voxelnorth.Anchor.png`](../resources/icons/com.voxelnorth.Anchor.png) | App icon |
+| [`resources/com.voxelnorth.Mountie.desktop`](../resources/com.voxelnorth.Mountie.desktop) | Desktop entry template |
+| [`resources/icons/com.voxelnorth.Mountie.png`](../resources/icons/com.voxelnorth.Mountie.png) | App icon |
 | [`Cargo.toml`](../Cargo.toml) | Version + release profile |
 | [`INSTALL.md`](../INSTALL.md) | User-facing install documentation |
 | [`README.md`](../README.md) | Project overview + install TL;DR |

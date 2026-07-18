@@ -1,11 +1,11 @@
-# Install Anchor
+# Install Mountie
 
-Complete setup instructions for installing **Anchor** on Linux.
+Complete setup instructions for installing **Mountie** on Linux.
 
 ## Quick install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash
 ```
 
 | Flag | Behavior |
@@ -20,8 +20,8 @@ curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh
 From a git clone:
 
 ```bash
-git clone https://github.com/maplepreneur/Anchor.git
-cd Anchor
+git clone https://github.com/maplepreneur/Mountie.git
+cd Mountie
 ./install.sh
 ```
 
@@ -45,7 +45,7 @@ After a GitHub Release is published:
 ./install.sh --system
 
 # Or download the .deb from the release page and:
-sudo apt install ./anchor_0.1.0_amd64.deb
+sudo apt install ./mountie_0.1.0_amd64.deb
 ```
 
 ### Build a package yourself
@@ -55,9 +55,9 @@ Version is read from `Cargo.toml` (override with an argument):
 ```bash
 # Build release binary + package
 ./scripts/build-deb.sh
-# → dist/anchor_<version>_<arch>.deb
+# → dist/mountie_<version>_<arch>.deb
 
-# Reuse an existing target/release/anchor
+# Reuse an existing target/release/mountie
 ./scripts/build-deb.sh --skip-build
 
 # Override version stamp in the package metadata
@@ -68,9 +68,9 @@ Package layout:
 
 | Path | Content |
 |---|---|
-| `/usr/bin/anchor` | Binary |
-| `/usr/share/applications/com.voxelnorth.Anchor.desktop` | App menu launcher |
-| `/usr/share/icons/hicolor/256x256/apps/com.voxelnorth.Anchor.png` | Icon |
+| `/usr/bin/mountie` | Binary |
+| `/usr/share/applications/com.voxelnorth.Mountie.desktop` | App menu launcher |
+| `/usr/share/icons/hicolor/256x256/apps/com.voxelnorth.Mountie.png` | Icon |
 
 Runtime dependencies declared in the package: `libgtk-4-1`, `libadwaita-1-0`, `libglib2.0-0`.
 
@@ -79,14 +79,14 @@ Runtime dependencies declared in the package: `libgtk-4-1`, `libadwaita-1-0`, `l
 1. Bump `version` in `Cargo.toml`
 2. Commit and tag, e.g. `git tag v0.1.0`
 3. Run `./scripts/build-deb.sh` (on each arch you support, or cross-build)
-4. Create a GitHub Release and upload `dist/anchor_<version>_<arch>.deb`
-5. Name the asset exactly like `anchor_0.1.0_amd64.deb` so `install.sh` can find it
+4. Create a GitHub Release and upload `dist/mountie_<version>_<arch>.deb`
+5. Name the asset exactly like `mountie_0.1.0_amd64.deb` so `install.sh` can find it
 
 ## Install build dependencies
 
 ### Zorin OS / Ubuntu / Debian
 
-These packages are required to **compile** Anchor (runtime GTK/libadwaita are usually already installed on Zorin/Ubuntu). The install script installs them automatically when building from source.
+These packages are required to **compile** Mountie (runtime GTK/libadwaita are usually already installed on Zorin/Ubuntu). The install script installs them automatically when building from source.
 
 ```bash
 sudo apt update
@@ -113,8 +113,8 @@ cargo --version
 ## Build from source
 
 ```bash
-git clone https://github.com/maplepreneur/Anchor.git
-cd Anchor
+git clone https://github.com/maplepreneur/Mountie.git
+cd Mountie
 cargo build --release
 ```
 
@@ -127,20 +127,20 @@ cargo test
 The binary is written to:
 
 ```text
-target/release/anchor
+target/release/mountie
 ```
 
 Run without installing:
 
 ```bash
-./target/release/anchor
+./target/release/mountie
 # or during development:
 cargo run
 ```
 
 ## Install for your user (manual)
 
-This installs the binary, icon, and a desktop launcher so **Anchor** appears in the app menu. Prefer `./install.sh --user` when possible.
+This installs the binary, icon, and a desktop launcher so **Mountie** appears in the app menu. Prefer `./install.sh --user` when possible.
 
 ```bash
 cargo build --release
@@ -149,9 +149,9 @@ mkdir -p ~/.local/bin \
   ~/.local/share/applications \
   ~/.local/share/icons/hicolor/256x256/apps
 
-cp target/release/anchor ~/.local/bin/
-cp resources/com.voxelnorth.Anchor.desktop ~/.local/share/applications/
-cp resources/icons/com.voxelnorth.Anchor.png \
+cp target/release/mountie ~/.local/bin/
+cp resources/com.voxelnorth.Mountie.desktop ~/.local/share/applications/
+cp resources/icons/com.voxelnorth.Mountie.png \
   ~/.local/share/icons/hicolor/256x256/apps/
 
 # Ensure ~/.local/bin is on your PATH (add to ~/.bashrc if needed)
@@ -161,10 +161,10 @@ update-desktop-database ~/.local/share/applications 2>/dev/null || true
 gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor 2>/dev/null || true
 ```
 
-Then open **Anchor** from Super search / the application menu, or run:
+Then open **Mountie** from Super search / the application menu, or run:
 
 ```bash
-anchor
+mountie
 ```
 
 ### Keyboard shortcuts
@@ -181,13 +181,32 @@ In the main window, press **F1** (or the keyboard icon in the header) for the in
 
 ### PATH tip
 
-If `anchor` is not found in a new terminal:
+If `mountie` is not found in a new terminal:
 
 ```bash
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
-## Upgrading from “Zorin Web App Manager” (v1)
+## Upgrading from Anchor or “Zorin Web App Manager”
+
+### From Anchor
+
+Earlier builds used:
+
+- Binary name: `anchor`
+- Data dir: `~/.local/share/anchor/`
+- Desktop tag: `X-WebApp-Manager=anchor`
+- App ID: `com.voxelnorth.Anchor`
+
+Mountie **still lists and repairs** apps created with the Anchor tag. New apps use `mountie` and `~/.local/share/mountie/`.
+
+After installing Mountie:
+
+1. Remove the old binary if present: `rm -f ~/.local/bin/anchor`
+2. Replace the old desktop entry with `com.voxelnorth.Mountie.desktop` (see above)
+3. Launch Mountie once so existing apps can refresh dock matching metadata
+
+### From “Zorin Web App Manager” (v1)
 
 Earlier builds used:
 
@@ -195,13 +214,10 @@ Earlier builds used:
 - Data dir: `~/.local/share/zorin-webapp-manager/`
 - Desktop tag: `X-WebApp-Manager=zorin-webapp-manager`
 
-Anchor **still lists and repairs** apps created with the old tag. New apps use `anchor` and `~/.local/share/anchor/`.
-
-After installing Anchor:
+Mountie **still lists and repairs** apps created with that tag as well.
 
 1. Remove the old binary if you installed it: `rm -f ~/.local/bin/zorin-webapp-manager`
-2. Replace the old desktop entry with `com.voxelnorth.Anchor.desktop` (see above)
-3. Launch Anchor once so existing apps can refresh dock matching metadata
+2. Install Mountie and open it once so existing apps refresh dock matching metadata
 
 ## Uninstall
 
@@ -209,15 +225,15 @@ After installing Anchor:
 # Preferred
 ./install.sh --uninstall
 # or
-curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash -s -- --uninstall
 ```
 
 Manual user uninstall:
 
 ```bash
-rm -f ~/.local/bin/anchor
-rm -f ~/.local/share/applications/com.voxelnorth.Anchor.desktop
-rm -f ~/.local/share/icons/hicolor/256x256/apps/com.voxelnorth.Anchor.png
+rm -f ~/.local/bin/mountie
+rm -f ~/.local/share/applications/com.voxelnorth.Mountie.desktop
+rm -f ~/.local/share/icons/hicolor/256x256/apps/com.voxelnorth.Mountie.png
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
 gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor 2>/dev/null || true
 ```
@@ -225,30 +241,31 @@ gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor 2>/dev/null || true
 If installed via `.deb`:
 
 ```bash
-sudo apt remove anchor
+sudo apt remove mountie
 ```
 
-Optional — remove Anchor-created web apps and data (destructive):
+Optional — remove Mountie-created web apps and data (destructive):
 
 ```bash
 # Managed launchers
 rm -f ~/.local/share/applications/webapp-*.desktop
 
 # App data (icons + isolated profiles) — new and legacy paths
+rm -rf ~/.local/share/mountie
 rm -rf ~/.local/share/anchor
 rm -rf ~/.local/share/zorin-webapp-manager
 ```
 
-Only delete `webapp-*.desktop` files if you are sure they were created by Anchor / the previous Zorin Web App Manager.
+Only delete `webapp-*.desktop` files if you are sure they were created by Mountie, Anchor, or the previous Zorin Web App Manager.
 
 ## Troubleshooting
 
 ### Dock shows the browser icon instead of the web app
 
-On **Wayland**, Chromium-family browsers set a URL-based window id (for example `brave-www.youtube.com__-Default`). Anchor writes that value into `StartupWMClass`.
+On **Wayland**, Chromium-family browsers set a URL-based window id (for example `brave-www.youtube.com__-Default`). Mountie writes that value into `StartupWMClass`.
 
 1. Fully quit the web app
-2. Open Anchor once (repairs metadata)
+2. Open Mountie once (repairs metadata)
 3. Launch the web app again from the menu
 4. Unpin any old pin that still points at the browser, then pin the web app again
 
@@ -262,13 +279,13 @@ If you need logins or browser extensions (for example **1Password**) without sig
 
 Older Shared apps launched against the browser’s default profile. Chromium uses one process per profile, so the web app and browser shared a dock icon (same bug as Zorin Web App Manager).
 
-**Current behavior:** Shared apps always get their own `--user-data-dir` / Firefox profile. Anchor sets `StartupWMClass` to Chromium’s real Wayland `app_id`, writes an absolute PNG path in `Icon=` (so the list UI shows favicons immediately), and also installs a themed icon named after the window class for the dock.
+**Current behavior:** Shared apps always get their own `--user-data-dir` / Firefox profile. Mountie sets `StartupWMClass` to Chromium’s real Wayland `app_id`, writes an absolute PNG path in `Icon=` (so the list UI shows favicons immediately), and also installs a themed icon named after the window class for the dock.
 
-After upgrading, open **Anchor once** so existing Shared launchers are repaired (icons rewritten to absolute paths; Firefox Shared re-seeds extensions if the XPI folder was empty). Fully quit the web app and browser, then relaunch the web app. Unpin any old pin that still points at the browser if needed.
+After upgrading, open **Mountie once** so existing Shared launchers are repaired (icons rewritten to absolute paths; Firefox Shared re-seeds extensions if the XPI folder was empty). Fully quit the web app and browser, then relaunch the web app. Unpin any old pin that still points at the browser if needed.
 
 **Firefox Developer Edition note:** profiles live under `~/.config/mozilla/firefox/` (not only `~/.mozilla/firefox/`). Shared mode picks the real Dev Edition profile (`dev-edition-default` / `[Install]` default), not an empty stub.
 
-**Firefox Shared site logins (WhatsApp, etc.):** Shared mode copies cookies **and** origin storage (`storage/default/https+++…` IndexedDB/localStorage) for the web app’s domain. Apps that only got extensions/cookies before this fix are re-seeded the next time you open Anchor (fully quit the web app and Firefox first so files are not locked).
+**Firefox Shared site logins (WhatsApp, etc.):** Shared mode copies cookies **and** origin storage (`storage/default/https+++…` IndexedDB/localStorage) for the web app’s domain. Apps that only got extensions/cookies before this fix are re-seeded the next time you open Mountie (fully quit the web app and Firefox first so files are not locked).
 
 ### No browsers listed
 

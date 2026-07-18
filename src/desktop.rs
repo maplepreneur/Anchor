@@ -143,7 +143,7 @@ fn parse_desktop_file(path: &Path) -> Result<DesktopEntry> {
         return Err(anyhow!("missing X-WebApp-Manager"));
     };
     if !is_manager_tag(manager_tag) {
-        return Err(anyhow!("not managed by Anchor (got {manager_tag})"));
+        return Err(anyhow!("not managed by Mountie (got {manager_tag})"));
     }
 
     let profile_mode = if let Some(raw) = profile_mode_key.as_deref() {
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn write_and_parse_roundtrip() {
         let tmp = env::temp_dir().join(format!(
-            "anchor-desktop-test-{}",
+            "mountie-desktop-test-{}",
             std::process::id()
         ));
         let apps = tmp.join("applications");

@@ -1,12 +1,12 @@
 [package]
-name = "anchor"
+name = "mountie"
 version = "0.1.0"
 edition = "2021"
-description = "Turn any website into a real desktop app — isolated web apps for Zorin, Ubuntu, and GNOME"
+description = "Mountie helps you mount websites into desktop apps on Linux with ease — isolated web apps for Zorin, Ubuntu, and GNOME"
 license = "MIT"
 authors = ["Voxel North"]
-repository = "https://github.com/maplepreneur/Anchor"
-homepage = "https://github.com/maplepreneur/Anchor"
+repository = "https://github.com/maplepreneur/Mountie"
+homepage = "https://github.com/maplepreneur/Mountie"
 readme = "README.md"
 keywords = ["webapp", "linux", "gnome", "zorin", "pwa"]
 categories = ["gui", "command-line-utilities"]

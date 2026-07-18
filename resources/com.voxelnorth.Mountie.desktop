@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Mountie
+GenericName=Web App Manager
+Comment=Mountie helps you mount websites into desktop apps on Linux with ease!
+Exec=mountie
+Icon=com.voxelnorth.Mountie
+Terminal=false
+Categories=Utility;Network;
+StartupNotify=true
+Keywords=web;app;pwa;browser;mountie;zorin;ubuntu;linux;
+StartupWMClass=com.voxelnorth.Mountie

@@ -1,4 +1,4 @@
-//! Anchor — turn any website into a real desktop app.
+//! Mountie — mount websites into desktop apps on Linux with ease.
 
 mod browser;
 mod desktop;

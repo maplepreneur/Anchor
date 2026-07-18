@@ -1,13 +1,13 @@
-# Anchor
+# Mountie
 
-**Turn any website into a real desktop app.**
+**Mountie helps you mount websites into desktop apps on Linux with ease!**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform: Linux](https://img.shields.io/badge/platform-Linux-brightgreen.svg)](#install)
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
 [![UI: GTK4](https://img.shields.io/badge/UI-GTK4%20%2F%20libadwaita-purple.svg)](https://www.gtk.org/)
 
-Anchor is a free, open-source **web app manager** for Linux. Give it a name and a URL—it fetches an icon, launches the site in its own window, and pins cleanly to your dock with a separate process from your everyday browser.
+Mountie is a free, open-source **web app manager** for Linux. Give it a name and a URL—it fetches an icon, launches the site in its own window, and pins cleanly to your dock with a separate process from your everyday browser.
 
 Built for people on **Zorin OS**, Ubuntu, and GNOME who want the “install this site as an app” experience without fighting browser menus or distro-only tooling.
 
@@ -17,9 +17,9 @@ Built for people on **Zorin OS**, Ubuntu, and GNOME who want the “install this
 
 ---
 
-## Why Anchor?
+## Why Mountie?
 
-| You want… | Anchor gives you… |
+| You want… | Mountie gives you… |
 |---|---|
 | Sites that feel like apps | Frameless Chromium app windows / frameless Firefox profiles (no title bar) |
 | Your own icons on the dock | Launchers + Wayland `StartupWMClass` matching that actually works |
@@ -27,7 +27,7 @@ Built for people on **Zorin OS**, Ubuntu, and GNOME who want the “install this
 | Choice of browser | Brave, Firefox, Firefox Developer Edition, Chrome, Chromium, Edge, Vivaldi, Flatpaks, plus **system default** |
 | Something simple and free | MIT-licensed, no account, no telemetry, no Electron wrapper |
 
-Web tools are where a huge amount of real work happens—email, docs, chat, dashboards, video. Anchor makes those sites first-class citizens on a Linux desktop.
+Web tools are where a huge amount of real work happens—email, docs, chat, dashboards, video. Mountie makes those sites first-class citizens on a Linux desktop.
 
 ---
 
@@ -55,11 +55,11 @@ Web tools are where a huge amount of real work happens—email, docs, chat, dash
 
 ---
 
-## How Anchor compares
+## How Mountie compares
 
 Respectful comparison—different tools optimize for different environments.
 
-| | **Anchor** | **Omarchy web apps** | **Linux Mint WebApp Manager** | **Chrome / Brave “Install app” (PWA)** |
+| | **Mountie** | **Omarchy web apps** | **Linux Mint WebApp Manager** | **Chrome / Brave “Install app” (PWA)** |
 |---|---|---|---|---|
 | **UI** | Native GTK4 / libadwaita GUI | TUI menu inside Omarchy | GTK GUI | Inside the browser |
 | **Best fit** | Zorin / Ubuntu / GNOME stock desktops | Full Omarchy (Hyprland) setup | Linux Mint / Cinnamon (runs elsewhere too) | Single browser ecosystem |
@@ -69,7 +69,7 @@ Respectful comparison—different tools optimize for different environments.
 | **Electron bloat** | No—uses the browser you already have | No | No | No |
 | **Cost / license** | Free · MIT | Free · part of Omarchy | Free · Mint project | Free |
 
-**In short:** Omarchy is a full opinionated desktop; Mint’s tool is the classic Linux GUI for web apps; browser PWAs are convenient but browser-bound. **Anchor** is a focused, modern manager you can drop onto Zorin or Ubuntu and share as a standalone open-source project.
+**In short:** Omarchy is a full opinionated desktop; Mint’s tool is the classic Linux GUI for web apps; browser PWAs are convenient but browser-bound. **Mountie** is a focused, modern manager you can drop onto Zorin or Ubuntu and share as a standalone open-source project.
 
 ---
 
@@ -85,27 +85,27 @@ Screenshots will live in [`docs/screenshots/`](docs/screenshots/).
 ### One-liner (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash
 ```
 
 On **Debian / Ubuntu / Zorin**, the script installs the latest GitHub Release `.deb` when one is available. Otherwise it builds from source and installs to `~/.local`.
 
 ```bash
 # System-wide (.deb on Debian-like distros)
-curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash -s -- --system
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash -s -- --system
 
 # Always build from source (user install)
-curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash -s -- --from-source
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash -s -- --from-source
 
 # Uninstall
-curl -fsSL https://raw.githubusercontent.com/maplepreneur/Anchor/main/install.sh | bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/maplepreneur/Mountie/main/install.sh | bash -s -- --uninstall
 ```
 
 ### From a clone
 
 ```bash
-git clone https://github.com/maplepreneur/Anchor.git
-cd Anchor
+git clone https://github.com/maplepreneur/Mountie.git
+cd Mountie
 ./install.sh                 # smart default
 ./install.sh --user          # ~/.local
 ./install.sh --system        # .deb / system-wide
@@ -118,12 +118,12 @@ Build a versioned package (version comes from `Cargo.toml`):
 
 ```bash
 ./scripts/build-deb.sh
-# → dist/anchor_0.1.0_amd64.deb
+# → dist/mountie_0.1.0_amd64.deb
 
-sudo apt install ./dist/anchor_*.deb
+sudo apt install ./dist/mountie_*.deb
 ```
 
-Attach the `.deb` to a [GitHub Release](https://github.com/maplepreneur/Anchor/releases) named like `anchor_0.1.0_amd64.deb` so `install.sh` can download it.
+Attach the `.deb` to a [GitHub Release](https://github.com/maplepreneur/Mountie/releases) named like `mountie_0.1.0_amd64.deb` so `install.sh` can download it.
 
 Full requirements, PATH setup, upgrade from the old name, uninstall, and troubleshooting:
 
@@ -137,7 +137,7 @@ Maintainer deep-dive (install modes, `.deb` layout, release checklist):
 
 ## Usage
 
-1. Open **Anchor**
+1. Open **Mountie**
 2. Click **+** (Add Web App) or press **Ctrl+N**
 3. Enter **Name** and **URL** (use **Tab** / **Shift+Tab** to move between fields)
 4. Choose a **Browser** (or Default browser)
@@ -167,7 +167,7 @@ Press **F1** or click the keyboard icon in the header for a full shortcut list.
 **Tips**
 
 - **Isolated** apps start signed out. Sign in once inside each web app.
-- Use **Shared browser profile** when you need password managers (e.g. 1Password) or existing logins. Anchor copies data into a **private** profile so the web app is a separate process with its **own dock icon** (unlike joining the browser’s profile, which groups under the browser—Zorin Web App Manager’s bug). Close the browser before creating/updating Shared apps for a more complete copy.
+- Use **Shared browser profile** when you need password managers (e.g. 1Password) or existing logins. Mountie copies data into a **private** profile so the web app is a separate process with its **own dock icon** (unlike joining the browser’s profile, which groups under the browser—Zorin Web App Manager’s bug). Close the browser before creating/updating Shared apps for a more complete copy.
 - Dock matching: `StartupWMClass` equals Chromium’s Wayland `app_id`; the list uses an absolute PNG path for favicons.
 
 ---
@@ -176,11 +176,11 @@ Press **F1** or click the keyboard icon in the header for a full shortcut list.
 
 | Browser family | Launch style | Profile location |
 |---|---|---|
-| Chromium / Chrome / Brave / Edge / Vivaldi | `--app=URL` + `--user-data-dir` (always) | `~/.local/share/anchor/profiles/<id>/` (Shared is seeded from the browser) |
-| Firefox / Developer Edition / LibreWolf | Dedicated profile + `--no-remote` | `~/.local/share/anchor/firefox/<id>/` (Shared is seeded from the browser) |
+| Chromium / Chrome / Brave / Edge / Vivaldi | `--app=URL` + `--user-data-dir` (always) | `~/.local/share/mountie/profiles/<id>/` (Shared is seeded from the browser) |
+| Firefox / Developer Edition / LibreWolf | Dedicated profile + `--no-remote` | `~/.local/share/mountie/firefox/<id>/` (Shared is seeded from the browser) |
 
 Launchers: `~/.local/share/applications/webapp-*.desktop`  
-On Wayland, Chromium ignores `--class` and uses a URL-based window id (e.g. `brave-www.youtube.com__-Default`). Anchor writes that into `StartupWMClass` so the dock shows the right icon.
+On Wayland, Chromium ignores `--class` and uses a URL-based window id (e.g. `brave-www.youtube.com__-Default`). Mountie writes that into `StartupWMClass` so the dock shows the right icon.
 
 ---
 
@@ -195,7 +195,7 @@ src/
   paths.rs          # XDG paths
   webapp.rs         # Create / list / delete / repair
   ui/               # GTK4 + libadwaita UI
-resources/          # Desktop launcher + icon for Anchor itself
+resources/          # Desktop launcher + icon for Mountie itself
 scripts/build-deb.sh  # Versioned .deb package builder
 install.sh          # One-shot installer (deb or source)
 INSTALL.md          # Detailed setup

@@ -1,6 +1,6 @@
-# Contributing to Anchor
+# Contributing to Mountie
 
-Thanks for helping make Anchor better.
+Thanks for helping make Mountie better.
 
 ## Development setup
 
@@ -15,8 +15,8 @@ sudo apt install build-essential pkg-config \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source "$HOME/.cargo/env"
 
-git clone https://github.com/maplepreneur/Anchor.git
-cd Anchor
+git clone https://github.com/maplepreneur/Mountie.git
+cd Mountie
 cargo build
 cargo test
 cargo run

@@ -15,7 +15,7 @@ pub enum BrowserFamily {
 /// How a web app uses browser profile data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ProfileMode {
-    /// Private empty profile under Anchor data dir (default).
+    /// Private empty profile under Mountie data dir (default).
     #[default]
     Isolated,
     /// Private profile seeded from the browser (extensions, cookies, logins).
@@ -878,7 +878,7 @@ mod tests {
     #[test]
     fn firefox_profile_prefers_install_default_over_empty_stub() {
         let tmp = std::env::temp_dir().join(format!(
-            "anchor-ff-profile-test-{}",
+            "mountie-ff-profile-test-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&tmp);
